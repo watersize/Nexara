@@ -21,7 +21,8 @@ try:
     from rapidocr_onnxruntime import RapidOCR
 except Exception:
     RapidOCR = None
-OCR_ENGINE = RapidOCR() if RapidOCR is not None else None
+OCR_ENGINE = None
+OCR_INIT_ATTEMPTED = False
 try:
     from PIL import Image
 except Exception:
@@ -154,11 +155,26 @@ def extract_text_from_file(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def get_ocr_engine():
+    global OCR_ENGINE, OCR_INIT_ATTEMPTED
+    if OCR_INIT_ATTEMPTED:
+        return OCR_ENGINE
+    OCR_INIT_ATTEMPTED = True
+    if RapidOCR is None:
+        return None
+    try:
+        OCR_ENGINE = RapidOCR()
+    except Exception:
+        OCR_ENGINE = None
+    return OCR_ENGINE
+
+
 def local_ocr_text(path: Path) -> str:
-    if OCR_ENGINE is None:
+    engine = get_ocr_engine()
+    if engine is None:
         return ""
     try:
-        result, _ = OCR_ENGINE(str(path))
+        result, _ = engine(str(path))
     except Exception:
         return ""
     if not result:

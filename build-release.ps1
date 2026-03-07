@@ -46,7 +46,17 @@ Write-Host 'Generating branding...'
 
 Write-Host 'Building bundled AI agent...'
 Push-Location (Join-Path $root 'python_ai')
-& $pythonExe -m PyInstaller --noconfirm --clean --onefile --name agent agent.py
+& $pythonExe -m PyInstaller `
+  --noconfirm `
+  --clean `
+  --onefile `
+  --name agent `
+  --paths (Join-Path $venvDir 'Lib\site-packages\rapidocr_onnxruntime') `
+  --collect-data rapidocr_onnxruntime `
+  --hidden-import ch_ppocr_v3_det `
+  --hidden-import ch_ppocr_v2_cls `
+  --hidden-import ch_ppocr_v3_rec `
+  agent.py
 Pop-Location
 
 if (-not (Test-Path $agentDist)) {
