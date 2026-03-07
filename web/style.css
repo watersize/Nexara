@@ -19,6 +19,12 @@
   display: none !important;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -83,6 +89,8 @@ textarea {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -90,12 +98,22 @@ textarea {
   border-right: 2px solid var(--border);
   display: grid;
   gap: 18px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .content {
   padding: 24px;
   display: grid;
   gap: 18px;
+  align-content: start;
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .brand-card,
@@ -251,6 +269,7 @@ body.with-3d .tilt-card:hover {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(330px, 0.95fr);
   gap: 18px;
+  align-items: start;
 }
 
 .panel-head {
@@ -266,6 +285,13 @@ body.with-3d .tilt-card:hover {
 .chat-messages {
   display: grid;
   gap: 12px;
+}
+
+.chat-messages {
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
+  padding-right: 6px;
 }
 
 .lesson-card,
@@ -408,6 +434,7 @@ body.with-3d .tilt-card:hover {
   grid-template-rows: auto 1fr auto;
   gap: 12px;
   z-index: 30;
+  overflow: hidden;
 }
 
 .chat-drawer.is-open {
@@ -525,13 +552,29 @@ body.with-3d .tilt-card:hover {
 }
 
 @media (max-width: 1200px) {
+  html,
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .sidebar {
     border-right: none;
     border-bottom: 2px solid var(--border);
+    position: static;
+    height: auto;
+    overflow: visible;
+  }
+
+  .content {
+    height: auto;
+    overflow: visible;
   }
 
   .summary-grid,

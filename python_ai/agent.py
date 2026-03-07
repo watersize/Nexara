@@ -1,19 +1,31 @@
 ﻿import argparse
 import base64
 import hashlib
+import io
 import json
 import os
 import re
 import sys
 import time
+import warnings
 import zipfile
 from pathlib import Path
 from typing import Dict, List
 from xml.etree import ElementTree as ET
 
 import numpy as np
+warnings.filterwarnings("ignore", message="Unable to find acceptable character detection dependency.*")
 import requests
 from PyPDF2 import PdfReader
+try:
+    from rapidocr_onnxruntime import RapidOCR
+except Exception:
+    RapidOCR = None
+OCR_ENGINE = RapidOCR() if RapidOCR is not None else None
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 
 try:
     import telebot
@@ -23,7 +35,7 @@ except Exception:
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 TEXT_MODEL = os.getenv("GROQ_TEXT_MODEL", "llama-3.3-70b-versatile")
-VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "llama-3.2-90b-vision-preview")
+VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 
 try:
     sys.stdin.reconfigure(encoding="utf-8")
@@ -121,10 +133,13 @@ def parse_schedule_from_files(weekday: int, file_paths: List[str], subjects: Lis
         path = Path(file_path)
         if not path.exists():
             continue
-        extracted.append(extract_text_from_file(path))
+        try:
+            extracted.append(extract_text_from_file(path))
+        except Exception:
+            continue
     text = "\n".join(part for part in extracted if part.strip())
     if not text.strip():
-        raise ValueError("Could not extract text from files")
+        raise ValueError("Не удалось распознать текст из изображения или файла. Попробуй более четкий скриншот или вставь расписание текстом.")
     return parse_schedule(weekday, text, subjects)
 
 
@@ -139,9 +154,40 @@ def extract_text_from_file(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def local_ocr_text(path: Path) -> str:
+    if OCR_ENGINE is None:
+        return ""
+    try:
+        result, _ = OCR_ENGINE(str(path))
+    except Exception:
+        return ""
+    if not result:
+        return ""
+    parts = []
+    for item in result:
+        if len(item) >= 2 and item[1]:
+            parts.append(str(item[1]))
+    return "\n".join(parts).strip()
+
+
+def prepare_image_for_vision(path: Path) -> tuple[str, str]:
+    if Image is None:
+        mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        return mime, base64.b64encode(path.read_bytes()).decode("utf-8")
+
+    with Image.open(path) as image:
+        image = image.convert("RGB")
+        max_side = 1568
+        if max(image.size) > max_side:
+            image.thumbnail((max_side, max_side))
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=92, optimize=True)
+    return "image/jpeg", base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+
 def ocr_with_vision(path: Path) -> str:
-    mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-    encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
+    local_text = local_ocr_text(path)
+    mime, encoded = prepare_image_for_vision(path)
     messages = [{
         "role": "user",
         "content": [
@@ -149,7 +195,8 @@ def ocr_with_vision(path: Path) -> str:
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
         ],
     }]
-    return call_groq(VISION_MODEL, messages, 0.1) or ""
+    vision_text = call_groq(VISION_MODEL, messages, 0.1) or ""
+    return vision_text if len(vision_text.strip()) >= len(local_text.strip()) else local_text
 
 
 def docx_text(path: Path) -> str:
