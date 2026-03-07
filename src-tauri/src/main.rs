@@ -1,5 +1,6 @@
 ﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{Datelike, Local};
@@ -154,6 +155,7 @@ struct PythonScheduleResponse {
 struct SaveSchedulePayload {
     weekday: i64,
     text: String,
+    details_text: String,
     file_name: String,
     file_base64: String,
     mime_type: String,
@@ -170,6 +172,12 @@ struct UploadTextbookPayload {
 struct DeleteScheduleLessonPayload {
     weekday: i64,
     lesson: ScheduleLesson,
+}
+
+#[derive(Debug, Clone)]
+struct SubjectProfile {
+    teacher: String,
+    room: String,
 }
 
 fn default_settings() -> AppSettings {
@@ -219,6 +227,14 @@ fn initialize_database(path: &Path) -> Result<(), String> {
             lessons_json TEXT NOT NULL DEFAULT '[]',
             updated_at TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (user_key, weekday)
+        );
+        CREATE TABLE IF NOT EXISTS subject_profiles (
+            user_key TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            teacher TEXT NOT NULL DEFAULT '',
+            room TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_key, subject)
         );
         CREATE TABLE IF NOT EXISTS material_store (
             hash TEXT PRIMARY KEY,
@@ -631,6 +647,206 @@ async fn save_schedule_cache(
     .await
 }
 
+async fn load_subject_profiles(
+    state: &AppState,
+    user_key: String,
+) -> Result<HashMap<String, SubjectProfile>, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT subject, teacher, room
+                 FROM subject_profiles
+                 WHERE user_key = ?1",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([user_key], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    SubjectProfile {
+                        teacher: row.get(1)?,
+                        room: row.get(2)?,
+                    },
+                ))
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<HashMap<_, _>, _>>()
+            .map_err(|err| err.to_string())
+    })
+    .await
+}
+
+async fn upsert_subject_profile(
+    state: &AppState,
+    user_key: String,
+    subject: String,
+    teacher: String,
+    room: String,
+) -> Result<(), String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let existing = conn
+            .query_row(
+                "SELECT teacher, room FROM subject_profiles WHERE user_key = ?1 AND subject = ?2",
+                params![user_key, subject],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .ok();
+        let merged_teacher = if teacher.trim().is_empty() {
+            existing.as_ref().map(|value| value.0.clone()).unwrap_or_default()
+        } else {
+            teacher
+        };
+        let merged_room = if room.trim().is_empty() {
+            existing.as_ref().map(|value| value.1.clone()).unwrap_or_default()
+        } else {
+            room
+        };
+        conn.execute(
+            "INSERT INTO subject_profiles (user_key, subject, teacher, room, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(user_key, subject) DO UPDATE SET
+                teacher = excluded.teacher,
+                room = excluded.room,
+                updated_at = excluded.updated_at",
+            params![user_key, subject, merged_teacher, merged_room, Local::now().to_rfc3339()],
+        )
+        .map_err(|err| err.to_string())?;
+        Ok(())
+    })
+    .await
+}
+
+fn apply_subject_profiles(
+    mut lessons: Vec<ScheduleLesson>,
+    profiles: &HashMap<String, SubjectProfile>,
+) -> Vec<ScheduleLesson> {
+    for lesson in &mut lessons {
+        if let Some(profile) = profiles.get(&lesson.subject) {
+            if lesson.teacher.trim().is_empty() && !profile.teacher.trim().is_empty() {
+                lesson.teacher = profile.teacher.clone();
+            }
+            if lesson.room.trim().is_empty() && !profile.room.trim().is_empty() {
+                lesson.room = profile.room.clone();
+            }
+        }
+    }
+    lessons
+}
+
+async fn remember_subject_profiles(
+    state: &AppState,
+    user_key: String,
+    lessons: &[ScheduleLesson],
+) -> Result<(), String> {
+    for lesson in lessons {
+        if lesson.subject.trim().is_empty() {
+            continue;
+        }
+        if lesson.teacher.trim().is_empty() && lesson.room.trim().is_empty() {
+            continue;
+        }
+        upsert_subject_profile(
+            state,
+            user_key.clone(),
+            lesson.subject.clone(),
+            lesson.teacher.clone(),
+            lesson.room.clone(),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+fn parse_subject_overrides(details_text: &str) -> Vec<ScheduleLesson> {
+    let mut overrides = Vec::new();
+    for raw_line in details_text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let lowered_line = line.to_lowercase();
+        let subject = SUBJECTS
+            .iter()
+            .filter(|subject| lowered_line.contains(&subject.to_lowercase()))
+            .max_by_key(|subject| subject.len())
+            .map(|value| (*value).to_string());
+        let Some(subject) = subject else {
+            continue;
+        };
+        let mut remainder = line.replacen(&subject, "", 1);
+        remainder = remainder
+            .trim()
+            .trim_start_matches(['-', '—', ':', ' '])
+            .trim()
+            .to_string();
+        let room = regex_room(&remainder).unwrap_or_default();
+        let teacher = strip_room_markers(&remainder, &room);
+        overrides.push(ScheduleLesson {
+            subject,
+            teacher,
+            room,
+            start_time: String::new(),
+            end_time: String::new(),
+            notes: String::new(),
+            materials: Vec::new(),
+        });
+    }
+    overrides
+}
+
+fn strip_room_markers(text: &str, room: &str) -> String {
+    let mut cleaned = text.to_string();
+    if !room.trim().is_empty() {
+        for marker in ["каб.", "каб", "кабинет", "аудитория"] {
+            cleaned = cleaned.replace(&format!("{marker} {room}"), "");
+            cleaned = cleaned.replace(&format!("{marker}: {room}"), "");
+            cleaned = cleaned.replace(&format!("{marker}-{room}"), "");
+        }
+    }
+    cleaned
+        .replace(',', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string()
+}
+
+fn regex_room(text: &str) -> Option<String> {
+    let lowered = text.to_lowercase();
+    for marker in ["каб.", "каб", "кабинет", "аудитория"] {
+        if let Some(index) = lowered.find(marker) {
+            let tail = text[index + marker.len()..].trim();
+            let room: String = tail
+                .chars()
+                .skip_while(|char| char.is_whitespace() || *char == ':' || *char == '-')
+                .take_while(|char| char.is_alphanumeric() || *char == '-' || *char == '/')
+                .collect();
+            if !room.is_empty() {
+                return Some(room);
+            }
+        }
+    }
+    None
+}
+
+fn apply_subject_overrides(
+    mut lessons: Vec<ScheduleLesson>,
+    overrides: &[ScheduleLesson],
+) -> Vec<ScheduleLesson> {
+    for lesson in &mut lessons {
+        if let Some(override_lesson) = overrides.iter().find(|item| item.subject == lesson.subject) {
+            if !override_lesson.teacher.trim().is_empty() {
+                lesson.teacher = override_lesson.teacher.clone();
+            }
+            if !override_lesson.room.trim().is_empty() {
+                lesson.room = override_lesson.room.clone();
+            }
+        }
+    }
+    lessons
+}
+
 async fn load_schedule_cache(
     state: &AppState,
     user_key: String,
@@ -995,6 +1211,8 @@ async fn save_settings(settings: AppSettings, state: State<'_, AppState>) -> Res
 
 #[tauri::command]
 async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
     let file_paths = if !payload.file_base64.trim().is_empty() {
         let path = write_import_file(
             &state.imports_dir,
@@ -1007,9 +1225,15 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
     } else {
         Vec::new()
     };
+    let has_schedule_input = !file_paths.is_empty() || !payload.text.trim().is_empty();
+    let profiles = load_subject_profiles(&state, user_key.clone()).await?;
+    let overrides = parse_subject_overrides(&payload.details_text);
+    if !has_schedule_input && overrides.is_empty() {
+        return Err("Добавь расписание, файл или уточнения по предметам.".to_string());
+    }
 
-    let value = if !file_paths.is_empty() {
-        run_python_agent(
+    let mut lessons = if !file_paths.is_empty() {
+        let value = run_python_agent(
             &state,
             "parse_schedule_from_files",
             json!({
@@ -1019,8 +1243,12 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
             }),
         )
         .await
-    } else {
-        run_python_agent(
+        .map_err(|err| format!("Ошибка анализа расписания: {err}"))?;
+        let parsed: PythonScheduleResponse =
+            serde_json::from_value(value).map_err(|err| err.to_string())?;
+        parsed.lessons
+    } else if !payload.text.trim().is_empty() {
+        let value = run_python_agent(
             &state,
             "parse_schedule",
             json!({
@@ -1030,18 +1258,27 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
             }),
         )
         .await
-    }
-    .map_err(|err| format!("Ошибка анализа расписания: {err}"))?;
+        .map_err(|err| format!("Ошибка анализа расписания: {err}"))?;
+        let parsed: PythonScheduleResponse =
+            serde_json::from_value(value).map_err(|err| err.to_string())?;
+        parsed.lessons
+    } else {
+        load_schedule_cache(&state, user_key.clone(), payload.weekday).await?
+    };
 
-    let parsed: PythonScheduleResponse =
-        serde_json::from_value(value).map_err(|err| err.to_string())?;
-    let session = load_auth_session(&state).await?;
-    let user_key = local_user_key(session.as_ref());
-    save_schedule_cache(&state, user_key, payload.weekday, parsed.lessons).await?;
+    lessons = apply_subject_profiles(lessons, &profiles);
+    lessons = apply_subject_overrides(lessons, &overrides);
+    save_schedule_cache(&state, user_key.clone(), payload.weekday, lessons.clone()).await?;
+    remember_subject_profiles(&state, user_key.clone(), &lessons).await?;
+    remember_subject_profiles(&state, user_key, &overrides).await?;
     notify_status("Nexara".to_string(), "Расписание обновлено".to_string(), state.clone()).await?;
     Ok(OperationResult {
         ok: true,
-        message: "Расписание обновлено".to_string(),
+        message: if has_schedule_input {
+            "Расписание обновлено".to_string()
+        } else {
+            "Уточнения по предметам сохранены".to_string()
+        },
     })
 }
 
@@ -1210,4 +1447,44 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_subject_override_line() {
+        let overrides = parse_subject_overrides(
+            "Английский язык — Гаршева Анна Геннадьевна, каб. 312",
+        );
+        assert_eq!(overrides.len(), 1);
+        assert_eq!(overrides[0].subject, "Английский язык");
+        assert_eq!(overrides[0].teacher, "Гаршева Анна Геннадьевна");
+        assert_eq!(overrides[0].room, "312");
+    }
+
+    #[test]
+    fn applies_saved_subject_profile_to_missing_teacher() {
+        let lessons = vec![ScheduleLesson {
+            subject: "Английский язык".to_string(),
+            teacher: String::new(),
+            room: String::new(),
+            start_time: "09:25".to_string(),
+            end_time: "10:10".to_string(),
+            notes: String::new(),
+            materials: Vec::new(),
+        }];
+        let profiles = HashMap::from([(
+            "Английский язык".to_string(),
+            SubjectProfile {
+                teacher: "Гаршева Анна Геннадьевна".to_string(),
+                room: "312".to_string(),
+            },
+        )]);
+
+        let applied = apply_subject_profiles(lessons, &profiles);
+        assert_eq!(applied[0].teacher, "Гаршева Анна Геннадьевна");
+        assert_eq!(applied[0].room, "312");
+    }
 }

@@ -120,6 +120,7 @@ def parse_schedule(weekday: int, text: str, subjects: List[str]) -> Dict:
         try:
             parsed = json.loads(extract_json(raw))
             normalized = normalize_lessons(parsed.get("lessons", []), subjects)
+            normalized = merge_times_from_fallback(normalized, fallback_lessons)
             if len(fallback_lessons) > len(normalized):
                 return {"lessons": fallback_lessons}
             return {"lessons": normalized}
@@ -339,6 +340,25 @@ def normalize_lessons(lessons: List[Dict], subjects: List[str]) -> List[Dict]:
             "materials": [str(item).strip() for item in lesson.get("materials", []) if str(item).strip()],
         })
     return normalized
+
+
+def merge_times_from_fallback(primary: List[Dict], fallback: List[Dict]) -> List[Dict]:
+    if not primary or not fallback or len(primary) != len(fallback):
+        return primary
+    primary_unique = {f"{item.get('start_time', '')}-{item.get('end_time', '')}" for item in primary}
+    fallback_unique = {f"{item.get('start_time', '')}-{item.get('end_time', '')}" for item in fallback}
+    if len(primary_unique) > 1 or len(fallback_unique) <= 1:
+        return primary
+
+    merged = []
+    for index, lesson in enumerate(primary):
+        fallback_lesson = fallback[index]
+        merged.append({
+            **lesson,
+            "start_time": fallback_lesson.get("start_time", lesson.get("start_time", "08:30")),
+            "end_time": fallback_lesson.get("end_time", lesson.get("end_time", "09:15")),
+        })
+    return merged
 
 
 def normalize_time(value: str) -> str:

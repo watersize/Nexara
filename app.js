@@ -273,8 +273,9 @@ async function loadSchedule(weekday) {
 
 async function saveSchedule() {
   const text = document.getElementById("scheduleInput").value.trim();
-  if (!text && !state.scheduleFile) {
-    showToast("Добавь текст или файл с расписанием.");
+  const detailsText = document.getElementById("scheduleDetailsInput").value.trim();
+  if (!text && !state.scheduleFile && !detailsText) {
+    showToast("Добавь текст, файл или уточнения по предметам.");
     return;
   }
   try {
@@ -282,6 +283,7 @@ async function saveSchedule() {
     const payload = {
       weekday: Number(document.getElementById("scheduleWeekdaySelect").value),
       text,
+      details_text: detailsText,
       file_name: state.scheduleFile?.name || "",
       file_base64: state.scheduleFile ? await readFileAsDataUrl(state.scheduleFile) : "",
       mime_type: state.scheduleFile?.type || "",
@@ -547,6 +549,7 @@ function cycleHint(showToastOnHidden = true) {
 function resetScheduleImport() {
   state.scheduleFile = null;
   document.getElementById("scheduleInput").value = "";
+  document.getElementById("scheduleDetailsInput").value = "";
   document.getElementById("scheduleFileInput").value = "";
   document.getElementById("scheduleFileName").textContent = "Файл не выбран.";
 }
