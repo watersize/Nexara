@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nexara</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="theme-light with-3d">
+    <div class="loading-overlay" id="loadingOverlay" hidden>
+      <div class="loading-card" id="loadingText">Загрузка...</div>
+    </div>
+
+    <div class="auth-modal is-open" id="authModal">
+      <div class="auth-sheet">
+        <span class="eyebrow">Nexara Auth</span>
+        <h2>Вход в учебное пространство</h2>
+        <p class="auth-copy">Создай аккаунт или войди в существующий. Даже если письмо подтверждения временно не уходит, локальный вход останется доступен.</p>
+
+        <div class="auth-tabs">
+          <button class="tab-btn is-active" data-auth-tab="login" type="button">Вход</button>
+          <button class="tab-btn" data-auth-tab="register" type="button">Регистрация</button>
+        </div>
+
+        <section class="auth-form is-active" data-auth-panel="login">
+          <input id="loginEmail" type="email" placeholder="Email" autocomplete="username" />
+          <input id="loginPassword" type="password" placeholder="Пароль" autocomplete="current-password" />
+          <button class="primary-btn" id="loginBtn" type="button">Войти</button>
+          <button class="link-btn" id="recoverPasswordBtn" type="button">Забыли пароль?</button>
+          <button class="link-btn" id="switchToRegisterBtn" type="button">Создать аккаунт</button>
+        </section>
+
+        <section class="auth-form" data-auth-panel="register">
+          <input id="registerEmail" type="email" placeholder="Email" autocomplete="username" />
+          <input id="registerPassword" type="password" placeholder="Пароль (минимум 6 символов)" autocomplete="new-password" />
+          <button class="primary-btn" id="registerBtn" type="button">Создать аккаунт</button>
+          <button class="link-btn" id="switchToLoginBtn" type="button">Уже есть аккаунт?</button>
+        </section>
+      </div>
+    </div>
+
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-card tilt-card">
+          <div class="brand-mark"><span></span><i></i></div>
+          <div>
+            <span class="eyebrow">School AI Planner</span>
+            <h1>Nexara</h1>
+            <p class="brand-copy">Расписание, учебники, AI-чат и персональный ритм подготовки в одном рабочем месте.</p>
+          </div>
+        </div>
+
+        <div class="user-card tilt-card">
+          <span class="eyebrow">Профиль</span>
+          <strong id="userName">Гость</strong>
+          <span id="userEmail">Вход не выполнен</span>
+          <span id="syncStatus">Готово</span>
+          <button class="ghost-btn" id="logoutBtn" type="button">Выйти</button>
+        </div>
+
+        <div class="sidebar-block">
+          <span class="eyebrow">Действия</span>
+          <button class="primary-btn" id="openScheduleModalBtn" type="button">Добавить расписание</button>
+          <button class="ghost-btn" id="uploadTextbookBtn" type="button">Загрузить учебник</button>
+          <button class="ghost-btn" id="refreshDayBtn" type="button">Обновить день</button>
+          <button class="ghost-btn" id="openChatBtn" type="button">Открыть AI-чат</button>
+          <button class="ghost-btn" id="openSettingsBtn" type="button">Настройки</button>
+        </div>
+
+        <div class="hint-card tilt-card" id="hintCard">
+          <span class="eyebrow">Подсказка</span>
+          <strong id="hintTitle">Умный импорт</strong>
+          <p id="hintText">Вставь обычный текст, скриншот или PDF с расписанием. Nexara сама выделит уроки, кабинеты и время.</p>
+        </div>
+      </aside>
+
+      <main class="content">
+        <header class="hero-card tilt-card">
+          <div>
+            <span class="eyebrow">Сегодняшний фокус</span>
+            <h2>Расписание, чат и база материалов</h2>
+            <p>Главная версия Nexara уже умеет принимать пользователей, разбирать расписание через Groq, отвечать по учебникам и хранить данные локально.</p>
+          </div>
+          <div class="hero-actions">
+            <select id="subjectFilter">
+              <option value="">Все предметы</option>
+            </select>
+          </div>
+        </header>
+
+        <section class="summary-grid">
+          <article class="summary-card tilt-card">
+            <span class="eyebrow">День</span>
+            <strong id="summaryDay">Понедельник</strong>
+            <p>Текущий фокус и учебная нагрузка.</p>
+          </article>
+          <article class="summary-card tilt-card">
+            <span class="eyebrow">Уроков</span>
+            <strong id="summaryLessonCount">0</strong>
+            <p>Количество занятий на выбранный день.</p>
+          </article>
+          <article class="summary-card tilt-card">
+            <span class="eyebrow">Учебники</span>
+            <strong id="summaryMaterials">0</strong>
+            <p>Материалы в RAG-базе пользователя.</p>
+          </article>
+          <article class="summary-card summary-card--accent tilt-card">
+            <span class="eyebrow">Следующий шаг</span>
+            <strong id="summaryNextLesson">Свободное окно</strong>
+            <p>С чего начать подготовку прямо сейчас.</p>
+          </article>
+        </section>
+
+        <section class="days-panel panel tilt-card">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow">Неделя</span>
+              <h3>Выбор дня</h3>
+            </div>
+          </div>
+          <div class="days-bar" id="daysBar"></div>
+        </section>
+
+        <section class="workspace-grid">
+          <section class="panel tilt-card">
+            <div class="panel-head">
+              <div>
+                <span class="eyebrow">Расписание</span>
+                <h3 id="selectedDayLabel">Понедельник</h3>
+              </div>
+              <span class="pill">AI + локальная база</span>
+            </div>
+            <div class="schedule-list" id="scheduleList"></div>
+          </section>
+
+          <aside class="panel panel-stack tilt-card">
+            <section>
+              <div class="panel-head">
+                <div>
+                  <span class="eyebrow">AI Planner</span>
+                  <h3>План подготовки</h3>
+                </div>
+                <button class="ghost-btn" id="generatePlanBtn" type="button">Сгенерировать</button>
+              </div>
+              <div class="planner-output" id="plannerOutput">Нажми «Сгенерировать», чтобы получить персональный план на выбранный день.</div>
+            </section>
+
+            <section>
+              <div class="panel-head">
+                <div>
+                  <span class="eyebrow">RAG-база</span>
+                  <h3>Учебники</h3>
+                </div>
+              </div>
+              <div class="textbook-list" id="textbookList"></div>
+            </section>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <aside class="chat-drawer tilt-card" id="chatDrawer" aria-hidden="true">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">Nexara AI</span>
+          <h3>Чат-помощник</h3>
+        </div>
+        <div class="chat-actions">
+          <button class="ghost-btn" id="clearChatBtn" type="button">Очистить</button>
+          <button class="ghost-btn" id="closeChatBtn" type="button">Закрыть</button>
+        </div>
+      </div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <form class="chat-form" id="chatForm">
+        <textarea id="chatInput" rows="4" placeholder="Спроси про тему, домашнее задание или загруженный учебник"></textarea>
+        <button class="primary-btn" type="submit">Спросить</button>
+      </form>
+    </aside>
+
+    <div class="modal" id="scheduleModal">
+      <div class="modal-sheet tilt-card">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Импорт</span>
+            <h3>Добавить расписание</h3>
+          </div>
+          <button class="ghost-btn" data-close-modal="scheduleModal" type="button">Закрыть</button>
+        </div>
+        <div class="form-grid">
+          <select id="scheduleWeekdaySelect"></select>
+          <textarea id="scheduleInput" rows="7" placeholder="Например: Алгебра 8:30-9:15, Геометрия 9:30-10:15, все уроки по 45 минут"></textarea>
+          <div class="file-picker-card">
+            <div>
+              <strong>Скриншот, фото или файл</strong>
+              <p id="scheduleFileName">Файл не выбран.</p>
+            </div>
+            <button class="ghost-btn" id="pickScheduleFileBtn" type="button">Выбрать файл</button>
+          </div>
+          <input id="scheduleFileInput" type="file" accept="image/*,.pdf,.docx,.txt" hidden />
+        </div>
+        <div class="modal-actions">
+          <button class="ghost-btn" data-close-modal="scheduleModal" type="button">Отмена</button>
+          <button class="primary-btn" id="saveScheduleBtn" type="button">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="settingsModal">
+      <div class="modal-sheet tilt-card settings-sheet">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Preferences</span>
+            <h3>Настройки</h3>
+          </div>
+          <button class="ghost-btn" data-close-modal="settingsModal" type="button">Закрыть</button>
+        </div>
+        <div class="settings-grid">
+          <label>
+            <span>Тема</span>
+            <select id="themeSelect">
+              <option value="theme-light">Светлая</option>
+              <option value="theme-dark">Тёмная</option>
+              <option value="theme-contrast">Контрастная</option>
+            </select>
+          </label>
+          <label>
+            <span>Напомнить за часов</span>
+            <input id="reminderHoursInput" type="number" min="1" max="48" />
+          </label>
+          <label class="switch-row">
+            <span>Включить хинты</span>
+            <input id="hintsEnabledInput" type="checkbox" />
+          </label>
+          <label class="switch-row">
+            <span>3D-оформление</span>
+            <input id="enable3dInput" type="checkbox" />
+          </label>
+          <label class="switch-row">
+            <span>Telegram-уведомления</span>
+            <input id="telegramEnabledInput" type="checkbox" />
+          </label>
+          <label>
+            <span>Bot Token</span>
+            <input id="telegramBotTokenInput" type="text" placeholder="Telegram Bot Token" />
+          </label>
+          <label>
+            <span>Chat ID</span>
+            <input id="telegramChatIdInput" type="text" placeholder="Telegram Chat ID" />
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="primary-btn" id="saveSettingsBtn" type="button">Сохранить настройки</button>
+        </div>
+      </div>
+    </div>
+
+    <input id="textbookFileInput" type="file" accept=".pdf,application/pdf" hidden />
+
+    <div class="toast" id="toast"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
