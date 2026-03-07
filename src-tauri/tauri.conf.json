@@ -29,10 +29,25 @@
     ]
   },
   "bundle": {
-    "active": false,
-    "targets": "all",
+    "active": true,
+    "targets": "nsis",
     "icon": [
       "icons/icon.png"
-    ]
+    ],
+    "publisher": "Nexara",
+    "category": "Education",
+    "shortDescription": "AI-powered educational assistant",
+    "longDescription": "Nexara is a modern AI-powered educational assistant that helps students with scheduling, learning, and document management.",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "resources": [],
+    "externalBin": [],
+    "copyright": "",
+    "license": "",
+    "licenseFile": "",
+    "createUpdaterArtifacts": false
   }
 }
