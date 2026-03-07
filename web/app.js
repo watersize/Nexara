@@ -91,7 +91,6 @@ function bindUi() {
     renderWeekControls();
     await loadSchedule(state.selectedWeekday);
   });
-  document.getElementById("cloneQuarterBtn")?.addEventListener("click", cloneQuarter);
   document.getElementById("bindTelegramBtn")?.addEventListener("click", bindTelegram);
   document.getElementById("deleteAccountBtn")?.addEventListener("click", deleteAccount);
   document.querySelectorAll("[data-close-modal]").forEach((button) => {
@@ -648,7 +647,7 @@ function renderWeekControls() {
   if (select && !select.options.length) {
     select.innerHTML = Array.from({ length: 52 }, (_, index) => {
       const week = index + 1;
-      return `<option value="${week}">?????? ${week}</option>`;
+      return `<option value="${week}">\u041d\u0435\u0434\u0435\u043b\u044f ${week}</option>`;
     }).join("");
   }
   if (select) {
@@ -656,7 +655,7 @@ function renderWeekControls() {
   }
   const label = document.getElementById("weekBadge");
   if (label) {
-    label.textContent = `?????? ${state.selectedWeekNumber} ? ${formatWeekRange(state.selectedWeekNumber)}`;
+    label.textContent = formatWeekRange(state.selectedWeekNumber);
   }
   const previousLabel = document.getElementById("previousWeekLabel");
   const nextLabel = document.getElementById("nextWeekLabel");

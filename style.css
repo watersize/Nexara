@@ -315,6 +315,18 @@ body.with-3d .tilt-card:hover {
   align-items: center;
 }
 
+.days-panel .panel-head {
+  align-items: center;
+}
+
+#weekNumberSelect {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+
 .week-nav-group {
   display: flex;
   align-items: center;
@@ -326,16 +338,22 @@ body.with-3d .tilt-card:hover {
 }
 
 .week-arrow {
-  width: 46px;
-  min-width: 46px;
+  width: 54px;
+  min-width: 54px;
   padding: 12px 0;
-  font-size: 1.1rem;
+  font-size: 1.35rem;
+  font-weight: 700;
 }
 
 .week-side-label {
-  min-width: 84px;
+  min-width: 110px;
   color: var(--muted);
   font-size: 0.86rem;
+  text-align: center;
+}
+
+.week-range-pill {
+  min-width: 170px;
   text-align: center;
 }
 
