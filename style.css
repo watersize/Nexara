@@ -25,6 +25,16 @@ body {
   overflow: hidden;
 }
 
+html {
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -89,8 +99,9 @@ textarea {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   min-height: 100vh;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
+  align-items: stretch;
 }
 
 .sidebar {
@@ -98,10 +109,8 @@ textarea {
   border-right: 2px solid var(--border);
   display: grid;
   gap: 18px;
-  position: sticky;
-  top: 0;
-  align-self: start;
-  height: 100vh;
+  min-height: 0;
+  height: 100dvh;
   overflow-y: auto;
 }
 
@@ -111,9 +120,28 @@ textarea {
   gap: 18px;
   align-content: start;
   min-width: 0;
-  height: 100vh;
+  min-height: 0;
+  height: 100dvh;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.sidebar,
+.content,
+.chat-messages,
+.modal-sheet,
+.auth-sheet {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.sidebar::-webkit-scrollbar,
+.content::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar,
+.modal-sheet::-webkit-scrollbar,
+.auth-sheet::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .brand-card,
@@ -428,7 +456,7 @@ body.with-3d .tilt-card:hover {
   top: 18px;
   right: 18px;
   width: min(480px, calc(100vw - 36px));
-  height: calc(100vh - 36px);
+  height: calc(100dvh - 36px);
   padding: 18px;
   display: none;
   grid-template-rows: auto 1fr auto;
@@ -473,6 +501,8 @@ body.with-3d .tilt-card:hover {
 .modal-sheet {
   width: min(760px, 100%);
   padding: 22px;
+  max-height: min(860px, calc(100dvh - 36px));
+  overflow-y: auto;
 }
 
 .auth-sheet {
@@ -567,12 +597,13 @@ body.with-3d .tilt-card:hover {
   .sidebar {
     border-right: none;
     border-bottom: 2px solid var(--border);
-    position: static;
+    min-height: auto;
     height: auto;
     overflow: visible;
   }
 
   .content {
+    min-height: auto;
     height: auto;
     overflow: visible;
   }
