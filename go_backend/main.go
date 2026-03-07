@@ -103,10 +103,26 @@ type syncProfilePayload struct {
 }
 
 type syncSchedulePayload struct {
-	UserID   string           `json:"user_id" binding:"required"`
-	Weekday  int              `json:"weekday" binding:"required"`
-	Lessons  []scheduleLesson `json:"lessons"`
-	Revision string           `json:"revision,omitempty"`
+	UserID     string           `json:"user_id" binding:"required"`
+	WeekNumber int              `json:"week_number" binding:"required"`
+	Weekday    int              `json:"weekday" binding:"required"`
+	Lessons    []scheduleLesson `json:"lessons"`
+	Revision   string           `json:"revision,omitempty"`
+}
+
+type telegramSessionRequest struct {
+	UserID string `json:"user_id" binding:"required"`
+	Email  string `json:"email"`
+}
+
+type telegramSessionResponse struct {
+	Ok    bool   `json:"ok"`
+	Token string `json:"token"`
+}
+
+type deleteFileRequest struct {
+	UserID string `json:"user_id" binding:"required"`
+	Hash   string `json:"hash" binding:"required"`
 }
 
 type notificationRequest struct {
@@ -125,10 +141,11 @@ type notificationResponse struct {
 }
 
 type syncScheduleRecord struct {
-	UserID    string           `json:"user_id"`
-	Weekday   int              `json:"weekday"`
-	Lessons   []scheduleLesson `json:"lessons"`
-	UpdatedAt string           `json:"updated_at"`
+	UserID     string           `json:"user_id"`
+	WeekNumber int              `json:"week_number"`
+	Weekday    int              `json:"weekday"`
+	Lessons    []scheduleLesson `json:"lessons"`
+	UpdatedAt  string           `json:"updated_at"`
 }
 
 type syncBootstrapResponse struct {
@@ -193,6 +210,8 @@ func main() {
 	router.POST("/sync/profile", srv.syncProfile)
 	router.GET("/sync/bootstrap", srv.syncBootstrap)
 	router.POST("/sync/schedule", srv.syncSchedule)
+	router.DELETE("/sync/file", srv.deleteFile)
+	router.POST("/telegram/session", srv.createTelegramSession)
 	router.POST("/send-notification", srv.sendNotification)
 
 	port := strings.TrimSpace(os.Getenv("PORT"))
@@ -363,7 +382,7 @@ func (s *server) syncBootstrap(c *gin.Context) {
 		jsonError(c, http.StatusBadRequest, "user_id is required")
 		return
 	}
-	rows, err := s.db.Query(c, `select day_of_week, lessons, updated_at from public.schedules where user_id = $1 order by day_of_week`, userID)
+	rows, err := s.db.Query(c, `select week_number, day_of_week, lessons, updated_at from public.schedules where user_id = $1 order by week_number, day_of_week`, userID)
 	if err != nil {
 		jsonError(c, http.StatusBadGateway, err.Error())
 		return
@@ -372,20 +391,22 @@ func (s *server) syncBootstrap(c *gin.Context) {
 
 	result := syncBootstrapResponse{Ok: true, Schedules: make([]syncScheduleRecord, 0, 7)}
 	for rows.Next() {
+		var weekNumber int
 		var weekday int
 		var lessonsRaw []byte
 		var updatedAt time.Time
-		if err := rows.Scan(&weekday, &lessonsRaw, &updatedAt); err != nil {
+		if err := rows.Scan(&weekNumber, &weekday, &lessonsRaw, &updatedAt); err != nil {
 			jsonError(c, http.StatusBadGateway, err.Error())
 			return
 		}
 		var lessons []scheduleLesson
 		_ = json.Unmarshal(lessonsRaw, &lessons)
 		result.Schedules = append(result.Schedules, syncScheduleRecord{
-			UserID:    userID,
-			Weekday:   weekday,
-			Lessons:   lessons,
-			UpdatedAt: updatedAt.Format(time.RFC3339),
+			UserID:     userID,
+			WeekNumber: weekNumber,
+			Weekday:    weekday,
+			Lessons:    lessons,
+			UpdatedAt:  updatedAt.Format(time.RFC3339),
 		})
 	}
 	_ = s.db.QueryRow(c, `select telegram_chat_id from public.users where id = $1`, userID).Scan(&result.TelegramChatID)
@@ -402,6 +423,10 @@ func (s *server) syncSchedule(c *gin.Context) {
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if payload.WeekNumber < 1 || payload.WeekNumber > 52 {
+		jsonError(c, http.StatusBadRequest, "week_number must be between 1 and 52")
+		return
+	}
 	if payload.Weekday < 1 || payload.Weekday > 7 {
 		jsonError(c, http.StatusBadRequest, "weekday must be between 1 and 7")
 		return
@@ -413,12 +438,13 @@ func (s *server) syncSchedule(c *gin.Context) {
 	}
 	_, err = s.db.Exec(
 		c,
-		`insert into public.schedules (user_id, day_of_week, lessons)
-		 values ($1, $2, $3::jsonb)
-		 on conflict (user_id, day_of_week) do update set
+		`insert into public.schedules (user_id, week_number, day_of_week, lessons)
+		 values ($1, $2, $3, $4::jsonb)
+		 on conflict (user_id, week_number, day_of_week) do update set
 		    lessons = excluded.lessons,
 		    updated_at = now()`,
 		payload.UserID,
+		payload.WeekNumber,
 		payload.Weekday,
 		string(encodedLessons),
 	)
@@ -463,6 +489,55 @@ func (s *server) sendNotification(c *gin.Context) {
 	})
 }
 
+func (s *server) createTelegramSession(c *gin.Context) {
+	if s.db == nil {
+		jsonError(c, http.StatusServiceUnavailable, "SUPABASE_DB_URL is not configured")
+		return
+	}
+	var payload telegramSessionRequest
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		jsonError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	token := fmt.Sprintf("tg_%d_%s", time.Now().Unix(), strings.ReplaceAll(payload.UserID, "-", ""))
+	_, err := s.db.Exec(
+		c,
+		`insert into public.telegram_link_tokens (token, user_id, email, expires_at)
+		 values ($1, $2, nullif($3, ''), now() + interval '20 minutes')
+		 on conflict (token) do update set
+		    user_id = excluded.user_id,
+		    email = excluded.email,
+		    expires_at = excluded.expires_at,
+		    consumed_at = null`,
+		token,
+		payload.UserID,
+		strings.TrimSpace(strings.ToLower(payload.Email)),
+	)
+	if err != nil {
+		jsonError(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	jsonOK(c, http.StatusOK, telegramSessionResponse{Ok: true, Token: token})
+}
+
+func (s *server) deleteFile(c *gin.Context) {
+	if s.db == nil {
+		jsonError(c, http.StatusServiceUnavailable, "SUPABASE_DB_URL is not configured")
+		return
+	}
+	var payload deleteFileRequest
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		jsonError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, err := s.db.Exec(c, `delete from public.files where user_id = $1 and file_hash = $2`, payload.UserID, payload.Hash)
+	if err != nil {
+		jsonError(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	jsonOK(c, http.StatusOK, gin.H{"ok": true, "message": "file deleted"})
+}
+
 func (s *server) StartBot() {
 	if s.bot == nil || s.db == nil {
 		return
@@ -481,7 +556,7 @@ func (s *server) StartBot() {
 				_, _ = s.bot.Send(reply)
 				continue
 			}
-			if err := s.saveTelegramChatID(context.Background(), identifier, update.Message.Chat.ID); err != nil {
+			if err := s.bindTelegramIdentity(context.Background(), identifier, update.Message.Chat.ID); err != nil {
 				reply := tgbotapi.NewMessage(update.Message.Chat.ID, "Не удалось привязать Telegram. Проверь аккаунт и попробуй ещё раз.")
 				_, _ = s.bot.Send(reply)
 				log.Printf("telegram bind failed: %v", err)
@@ -491,6 +566,33 @@ func (s *server) StartBot() {
 			_, _ = s.bot.Send(reply)
 		}
 	}
+}
+
+func (s *server) bindTelegramIdentity(ctx context.Context, identifier string, chatID int64) error {
+	if err := s.consumeTelegramToken(ctx, identifier, chatID); err == nil {
+		return nil
+	}
+	return s.saveTelegramChatID(ctx, identifier, chatID)
+}
+
+func (s *server) consumeTelegramToken(ctx context.Context, token string, chatID int64) error {
+	if s.db == nil {
+		return errors.New("db is not configured")
+	}
+	var userID string
+	err := s.db.QueryRow(
+		ctx,
+		`update public.telegram_link_tokens
+		 set consumed_at = now()
+		 where token = $1 and consumed_at is null and expires_at > now()
+		 returning user_id`,
+		token,
+	).Scan(&userID)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `update public.users set telegram_chat_id = $1 where id = $2`, chatID, userID)
+	return err
 }
 
 func (s *server) saveTelegramChatID(ctx context.Context, identifier string, chatID int64) error {

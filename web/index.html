@@ -119,8 +119,17 @@
               <span class="eyebrow">Неделя</span>
               <h3>Выбор дня</h3>
             </div>
+            <div class="week-toolbar">
+              <button class="ghost-btn" id="previousWeekBtn" type="button">Назад</button>
+              <select id="weekNumberSelect"></select>
+              <button class="ghost-btn" id="nextWeekBtn" type="button">Вперед</button>
+              <span class="pill" id="weekBadge">Неделя 1</span>
+            </div>
           </div>
           <div class="days-bar" id="daysBar"></div>
+          <div class="week-actions">
+            <button class="ghost-btn" id="cloneQuarterBtn" type="button">Расклонировать на четверть</button>
+          </div>
         </section>
 
         <section class="workspace-grid">
@@ -197,7 +206,10 @@
               <strong>Скриншот, фото или файл</strong>
               <p id="scheduleFileName">Файл не выбран.</p>
             </div>
-            <button class="ghost-btn" id="pickScheduleFileBtn" type="button">Выбрать файл</button>
+            <div class="file-picker-card__actions">
+              <button class="ghost-btn" id="pickScheduleFileBtn" type="button">Выбрать файл</button>
+              <button class="ghost-btn" id="deleteScheduleFileBtn" type="button">Удалить скриншот</button>
+            </div>
           </div>
           <input id="scheduleFileInput" type="file" accept="image/*,.pdf,.docx,.txt" hidden />
         </div>

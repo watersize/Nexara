@@ -18,6 +18,7 @@ const state = {
     telegram_bot_token: "",
     telegram_chat_id: "",
   },
+  selectedWeekNumber: 1,
   selectedWeekday: 1,
   selectedDayLabel: "Понедельник",
   selectedSubject: "",
@@ -82,6 +83,15 @@ function bindUi() {
   document.getElementById("scheduleFileInput")?.addEventListener("change", handleScheduleFilePick);
   document.getElementById("openSettingsBtn")?.addEventListener("click", () => openModal("settingsModal"));
   document.getElementById("saveSettingsBtn")?.addEventListener("click", saveSettings);
+  document.getElementById("deleteScheduleFileBtn")?.addEventListener("click", clearScheduleFile);
+  document.getElementById("previousWeekBtn")?.addEventListener("click", () => changeWeek(-1));
+  document.getElementById("nextWeekBtn")?.addEventListener("click", () => changeWeek(1));
+  document.getElementById("weekNumberSelect")?.addEventListener("change", async (event) => {
+    state.selectedWeekNumber = Number(event.target.value || 1);
+    renderWeekControls();
+    await loadSchedule(state.selectedWeekday);
+  });
+  document.getElementById("cloneQuarterBtn")?.addEventListener("click", cloneQuarter);
   document.getElementById("bindTelegramBtn")?.addEventListener("click", bindTelegram);
   document.getElementById("deleteAccountBtn")?.addEventListener("click", deleteAccount);
   document.querySelectorAll("[data-close-modal]").forEach((button) => {
@@ -101,10 +111,12 @@ async function bootstrap() {
     state.authSession = data.auth_session || null;
     state.settings = { ...state.settings, ...(data.settings || {}) };
     state.textbooks = Array.isArray(data.textbooks) ? data.textbooks : [];
+    state.selectedWeekNumber = data.default_week_number || 1;
     state.selectedWeekday = data.default_weekday || 1;
     state.selectedDayLabel = labelForWeekday(state.selectedWeekday);
     fillSubjectSelect();
     fillWeekdaySelect();
+    renderWeekControls();
     applySettingsToUi();
     renderDays();
     renderTextbooks();
@@ -249,6 +261,7 @@ async function deleteLesson(lesson) {
     showLoading("Удаление урока...");
     const result = await invokeWithTimeout("delete_schedule_lesson", {
       payload: {
+        week_number: state.selectedWeekNumber,
         weekday: state.selectedWeekday,
         lesson,
       },
@@ -292,22 +305,19 @@ async function saveSettings() {
 }
 
 function bindTelegram() {
-  if (!state.authSession?.user_id) {
-    showToast("Сначала войди в аккаунт.");
-    return;
-  }
-  if (!TELEGRAM_BOT_USERNAME) {
-    showToast("Укажи username Telegram-бота.");
-    return;
-  }
-  const link = `tg://resolve?domain=${encodeURIComponent(TELEGRAM_BOT_USERNAME)}&start=${encodeURIComponent(state.authSession.user_id)}`;
-  window.open(link, "_blank");
+  bindTelegramSession().catch((error) => {
+    console.error("bindTelegram failed", error);
+    showToast(normalizeError(error));
+  });
 }
 
 async function loadSchedule(weekday) {
   try {
     showLoading("Синхронизация...");
-    const lessons = await invokeWithTimeout("get_schedule_for_weekday", { weekday });
+    const lessons = await invokeWithTimeout("get_schedule_for_weekday", {
+      week_number: state.selectedWeekNumber,
+      weekday,
+    });
     state.schedule = Array.isArray(lessons) ? lessons : [];
     renderSchedule();
     updateSummary();
@@ -332,6 +342,7 @@ async function saveSchedule() {
   try {
     showLoading("Анализ расписания...");
     const payload = {
+      week_number: state.selectedWeekNumber,
       weekday: Number(document.getElementById("scheduleWeekdaySelect").value),
       text,
       details_text: detailsText,
@@ -386,6 +397,12 @@ function handleScheduleFilePick(event) {
   document.getElementById("scheduleFileName").textContent = file ? file.name : "Файл не выбран.";
 }
 
+function clearScheduleFile() {
+  state.scheduleFile = null;
+  document.getElementById("scheduleFileInput").value = "";
+  document.getElementById("scheduleFileName").textContent = "Файл не выбран.";
+}
+
 async function refreshTextbooks() {
   try {
     const textbooks = await invokeWithTimeout("list_textbooks_command");
@@ -400,7 +417,11 @@ async function refreshTextbooks() {
 async function generatePlan() {
   try {
     showLoading("Генерация плана...");
-    const result = await invokeWithTimeout("generate_study_plan", { weekday: state.selectedWeekday }, 45000);
+    const result = await invokeWithTimeout(
+      "generate_study_plan",
+      { week_number: state.selectedWeekNumber, weekday: state.selectedWeekday },
+      45000,
+    );
     document.getElementById("plannerOutput").textContent = result.plan || "План пока пуст.";
   } catch (error) {
     console.error("generatePlan failed", error);
@@ -455,7 +476,7 @@ function fillWeekdaySelect() {
   select.innerHTML = state.days.map((day) => `<option value="${day.value}">${escapeHtml(day.label)}</option>`).join("");
   select.value = String(state.selectedWeekday);
   document.getElementById("selectedDayLabel").textContent = state.selectedDayLabel;
-  document.getElementById("summaryDay").textContent = state.selectedDayLabel;
+  document.getElementById("summaryDay").textContent = `${state.selectedDayLabel}, неделя ${state.selectedWeekNumber}`;
 }
 
 function renderDays() {
@@ -469,6 +490,7 @@ function renderDays() {
       state.selectedWeekday = day.value;
       state.selectedDayLabel = day.label;
       fillWeekdaySelect();
+      renderWeekControls();
       renderDays();
       await loadSchedule(day.value);
     });
@@ -538,6 +560,15 @@ function renderTextbooks() {
       <span>${escapeHtml(book.mime_type)}</span>
       <small>${escapeHtml(book.hash.slice(0, 12))}</small>
     `;
+    const actions = document.createElement("div");
+    actions.className = "textbook-item__actions";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "ghost-btn";
+    deleteButton.textContent = "Удалить учебник";
+    deleteButton.addEventListener("click", () => deleteTextbook(book));
+    actions.appendChild(deleteButton);
+    node.appendChild(actions);
     list.appendChild(node);
   });
 }
@@ -558,7 +589,7 @@ function updateSummary() {
   const visible = state.selectedSubject
     ? state.schedule.filter((lesson) => lesson.subject === state.selectedSubject)
     : state.schedule;
-  document.getElementById("summaryDay").textContent = state.selectedDayLabel;
+  document.getElementById("summaryDay").textContent = `${state.selectedDayLabel}, неделя ${state.selectedWeekNumber}`;
   document.getElementById("summaryLessonCount").textContent = String(visible.length);
   document.getElementById("summaryMaterials").textContent = String(state.textbooks.length);
   document.getElementById("summaryNextLesson").textContent = visible[0]
@@ -607,11 +638,61 @@ function cycleHint(showToastOnHidden = true) {
 }
 
 function resetScheduleImport() {
-  state.scheduleFile = null;
+  clearScheduleFile();
   document.getElementById("scheduleInput").value = "";
   document.getElementById("scheduleDetailsInput").value = "";
-  document.getElementById("scheduleFileInput").value = "";
-  document.getElementById("scheduleFileName").textContent = "Файл не выбран.";
+}
+
+function renderWeekControls() {
+  const select = document.getElementById("weekNumberSelect");
+  if (select && !select.options.length) {
+    select.innerHTML = Array.from({ length: 52 }, (_, index) => {
+      const week = index + 1;
+      return `<option value="${week}">Неделя ${week}</option>`;
+    }).join("");
+  }
+  if (select) {
+    select.value = String(state.selectedWeekNumber);
+  }
+  const label = document.getElementById("weekBadge");
+  if (label) {
+    label.textContent = `Неделя ${state.selectedWeekNumber}`;
+  }
+}
+
+async function changeWeek(delta) {
+  const next = Math.min(52, Math.max(1, state.selectedWeekNumber + delta));
+  if (next === state.selectedWeekNumber) {
+    return;
+  }
+  state.selectedWeekNumber = next;
+  renderWeekControls();
+  fillWeekdaySelect();
+  await loadSchedule(state.selectedWeekday);
+}
+
+async function cloneQuarter() {
+  const targetStart = Number(prompt("С какой недели начать клонирование?", String(state.selectedWeekNumber + 1)) || 0);
+  const targetEnd = Number(prompt("По какую неделю клонировать?", String(Math.min(52, state.selectedWeekNumber + 12))) || 0);
+  if (!targetStart || !targetEnd) {
+    return;
+  }
+  try {
+    showLoading("Клонирование четверти...");
+    const result = await invokeWithTimeout("clone_schedule_quarter", {
+      payload: {
+        source_week_number: state.selectedWeekNumber,
+        target_start_week: targetStart,
+        target_end_week: targetEnd,
+      },
+    });
+    showToast(result.message || "Расписание расклонировано.");
+  } catch (error) {
+    console.error("cloneQuarter failed", error);
+    showToast(normalizeError(error));
+  } finally {
+    hideLoading();
+  }
 }
 
 function openModal(id) {
@@ -762,6 +843,7 @@ async function syncScheduleToCloud(weekday) {
       method: "POST",
       body: JSON.stringify({
         user_id: state.authSession.user_id,
+        week_number: state.selectedWeekNumber,
         weekday,
         lessons: state.schedule,
       }),
@@ -786,7 +868,11 @@ async function bootstrapCloudState() {
       applySettingsToUi();
     }
     if (Array.isArray(data?.schedules)) {
-      const current = data.schedules.find((item) => Number(item.weekday) === Number(state.selectedWeekday));
+      const current = data.schedules.find(
+        (item) =>
+          Number(item.weekday) === Number(state.selectedWeekday)
+          && Number(item.week_number || 1) === Number(state.selectedWeekNumber),
+      );
       if (current && Array.isArray(current.lessons) && !state.schedule.length) {
         state.schedule = current.lessons;
         renderSchedule();
@@ -797,6 +883,55 @@ async function bootstrapCloudState() {
   } catch (error) {
     console.warn("bootstrapCloudState failed", error);
     return null;
+  }
+}
+
+async function bindTelegramSession() {
+  if (!state.authSession?.user_id) {
+    throw new Error("Сначала войди в аккаунт.");
+  }
+  if (!TELEGRAM_BOT_USERNAME) {
+    throw new Error("Не указан username Telegram-бота.");
+  }
+  let token = state.authSession.user_id;
+  if (hasCloudBackend()) {
+    const response = await fetchJsonWithTimeout(`${BACKEND_BASE_URL}/telegram/session`, {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: state.authSession.user_id,
+        email: state.authSession.email,
+      }),
+    });
+    token = response.token || token;
+  }
+  window.open(
+    `tg://resolve?domain=${encodeURIComponent(TELEGRAM_BOT_USERNAME)}&start=${encodeURIComponent(token)}`,
+    "_blank",
+  );
+}
+
+async function deleteTextbook(book) {
+  if (!confirm(`Удалить учебник ${book.file_name}?`)) {
+    return;
+  }
+  try {
+    showLoading("Удаление учебника...");
+    const result = await invokeWithTimeout("delete_textbook", { payload: { hash: book.hash } }, 45000);
+    state.textbooks = state.textbooks.filter((item) => item.hash !== book.hash);
+    renderTextbooks();
+    updateSummary();
+    if (hasCloudBackend() && state.authSession?.user_id) {
+      await fetchJsonWithTimeout(`${BACKEND_BASE_URL}/sync/file`, {
+        method: "DELETE",
+        body: JSON.stringify({ user_id: state.authSession.user_id, hash: book.hash }),
+      });
+    }
+    showToast(result.message || "Учебник удалён.");
+  } catch (error) {
+    console.error("deleteTextbook failed", error);
+    showToast(normalizeError(error));
+  } finally {
+    hideLoading();
   }
 }
 
@@ -860,6 +995,7 @@ async function mockInvoke(command, args = {}) {
         "Обществознание", "Английский язык", "Литература", "Технология", "Классный час", "ОБЖ",
       ],
       default_weekday: 1,
+      default_week_number: 12,
       auth_session: null,
       settings: state.settings,
       textbooks: [],
@@ -878,7 +1014,7 @@ async function mockInvoke(command, args = {}) {
       },
     };
   }
-  if (command === "recover_password" || command === "logout_user" || command === "save_settings" || command === "save_schedule" || command === "upload_textbook" || command === "notify_status" || command === "delete_account") {
+  if (command === "recover_password" || command === "logout_user" || command === "save_settings" || command === "save_schedule" || command === "upload_textbook" || command === "notify_status" || command === "delete_account" || command === "clone_schedule_quarter" || command === "delete_textbook") {
     return { ok: true, message: "Готово" };
   }
   if (command === "list_textbooks_command") {

@@ -305,6 +305,20 @@ body.with-3d .tilt-card:hover {
   flex-wrap: wrap;
 }
 
+.week-toolbar,
+.week-actions,
+.textbook-item__actions,
+.file-picker-card__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.week-actions {
+  margin-top: 14px;
+}
+
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(330px, 0.95fr);
@@ -414,6 +428,10 @@ body.with-3d .tilt-card:hover {
 
 .textbook-item strong {
   display: block;
+}
+
+.textbook-item__actions {
+  margin-top: 10px;
 }
 
 .pill {
@@ -646,7 +664,10 @@ body.with-3d .tilt-card:hover {
   }
 
   .modal-actions,
-  .chat-actions {
+  .chat-actions,
+  .week-toolbar,
+  .week-actions,
+  .file-picker-card__actions {
     display: grid;
   }
 
