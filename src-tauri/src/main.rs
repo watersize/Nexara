@@ -847,6 +847,82 @@ fn apply_subject_overrides(
     lessons
 }
 
+fn parse_time_overrides(details_text: &str) -> Vec<(usize, String, String)> {
+    let mut overrides = Vec::new();
+    for segment in details_text.split(['\n', ',', ';']) {
+        let trimmed = segment.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut chars = trimmed.chars().peekable();
+        let mut digits = String::new();
+        while let Some(ch) = chars.peek() {
+            if ch.is_ascii_digit() {
+                digits.push(*ch);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        if digits.is_empty() {
+            continue;
+        }
+        let lesson_number = match digits.parse::<usize>() {
+            Ok(value) if value > 0 => value,
+            _ => continue,
+        };
+        let remainder: String = chars.collect();
+        let times = extract_times(&remainder);
+        if times.len() >= 2 {
+            overrides.push((lesson_number - 1, times[0].clone(), times[1].clone()));
+        }
+    }
+    overrides
+}
+
+fn extract_times(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut times = Vec::new();
+    let mut index = 0usize;
+    while index + 3 < chars.len() {
+        if chars[index].is_ascii_digit() {
+            if index + 4 < chars.len()
+                && chars[index + 1].is_ascii_digit()
+                && chars[index + 2] == ':'
+                && chars[index + 3].is_ascii_digit()
+                && chars[index + 4].is_ascii_digit()
+            {
+                times.push(chars[index..=index + 4].iter().collect());
+                index += 5;
+                continue;
+            }
+            if chars[index + 1] == ':'
+                && chars[index + 2].is_ascii_digit()
+                && chars[index + 3].is_ascii_digit()
+            {
+                times.push(chars[index..=index + 3].iter().collect());
+                index += 4;
+                continue;
+            }
+        }
+        index += 1;
+    }
+    times
+}
+
+fn apply_time_overrides(
+    mut lessons: Vec<ScheduleLesson>,
+    overrides: &[(usize, String, String)],
+) -> Vec<ScheduleLesson> {
+    for (index, start, end) in overrides {
+        if let Some(lesson) = lessons.get_mut(*index) {
+            lesson.start_time = start.clone();
+            lesson.end_time = end.clone();
+        }
+    }
+    lessons
+}
+
 async fn load_schedule_cache(
     state: &AppState,
     user_key: String,
@@ -1228,7 +1304,8 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
     let has_schedule_input = !file_paths.is_empty() || !payload.text.trim().is_empty();
     let profiles = load_subject_profiles(&state, user_key.clone()).await?;
     let overrides = parse_subject_overrides(&payload.details_text);
-    if !has_schedule_input && overrides.is_empty() {
+    let time_overrides = parse_time_overrides(&payload.details_text);
+    if !has_schedule_input && overrides.is_empty() && time_overrides.is_empty() {
         return Err("Добавь расписание, файл или уточнения по предметам.".to_string());
     }
 
@@ -1268,6 +1345,7 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
 
     lessons = apply_subject_profiles(lessons, &profiles);
     lessons = apply_subject_overrides(lessons, &overrides);
+    lessons = apply_time_overrides(lessons, &time_overrides);
     save_schedule_cache(&state, user_key.clone(), payload.weekday, lessons.clone()).await?;
     remember_subject_profiles(&state, user_key.clone(), &lessons).await?;
     remember_subject_profiles(&state, user_key, &overrides).await?;
@@ -1486,5 +1564,13 @@ mod tests {
         let applied = apply_subject_profiles(lessons, &profiles);
         assert_eq!(applied[0].teacher, "Гаршева Анна Геннадьевна");
         assert_eq!(applied[0].room, "312");
+    }
+
+    #[test]
+    fn parses_lesson_number_time_overrides() {
+        let overrides = parse_time_overrides("2 предмет 9:25-10:10, 3 - 10:25-11:10");
+        assert_eq!(overrides.len(), 2);
+        assert_eq!(overrides[0], (1, "9:25".to_string(), "10:10".to_string()));
+        assert_eq!(overrides[1], (2, "10:25".to_string(), "11:10".to_string()));
     }
 }

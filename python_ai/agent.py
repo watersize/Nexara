@@ -430,7 +430,8 @@ def send_telegram_message(bot_token: str, chat_id: str, text: str) -> Dict:
 def embed_text(text: str) -> np.ndarray:
     values = np.zeros(256, dtype=np.float32)
     for token in re.findall(r"\w+", text.lower()):
-        values[hash(token) % 256] += 1.0
+        bucket = int(hashlib.sha1(token.encode("utf-8")).hexdigest()[:8], 16) % 256
+        values[bucket] += 1.0
     norm = np.linalg.norm(values)
     return values if norm == 0 else values / norm
 
@@ -441,12 +442,14 @@ def retrieve_chunks(question: str, storage_dir: str) -> List[Chunk]:
         return []
     raw = json.loads(index_path.read_text(encoding="utf-8"))
     query = embed_text(question)
+    query_tokens = set(re.findall(r"\w+", question.lower()))
     scored = []
     for item in raw:
-        vector = np.array(item.get("embedding", []), dtype=np.float32)
-        if vector.size == 0:
-            continue
-        score = float(np.dot(query, vector))
+        text = item.get("text", "")
+        vector = embed_text(text)
+        text_tokens = set(re.findall(r"\w+", text.lower()))
+        lexical_bonus = float(len(query_tokens & text_tokens)) * 0.35
+        score = float(np.dot(query, vector)) + lexical_bonus
         scored.append((score, Chunk(item.get("title", "Материал"), item.get("text", ""), item.get("source", ""))))
     scored.sort(key=lambda item: item[0], reverse=True)
     return [chunk for _, chunk in scored[:4]]
