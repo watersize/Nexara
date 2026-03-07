@@ -315,6 +315,30 @@ body.with-3d .tilt-card:hover {
   align-items: center;
 }
 
+.week-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.week-nav-group--end {
+  justify-content: flex-end;
+}
+
+.week-arrow {
+  width: 46px;
+  min-width: 46px;
+  padding: 12px 0;
+  font-size: 1.1rem;
+}
+
+.week-side-label {
+  min-width: 84px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  text-align: center;
+}
+
 .week-actions {
   margin-top: 14px;
 }

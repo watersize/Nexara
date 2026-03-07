@@ -120,9 +120,15 @@
               <h3>Выбор дня</h3>
             </div>
             <div class="week-toolbar">
-              <button class="ghost-btn" id="previousWeekBtn" type="button">Назад</button>
+              <div class="week-nav-group">
+                <button class="ghost-btn week-arrow" id="previousWeekBtn" type="button">←</button>
+                <span class="week-side-label" id="previousWeekLabel"></span>
+              </div>
               <select id="weekNumberSelect"></select>
-              <button class="ghost-btn" id="nextWeekBtn" type="button">Вперед</button>
+              <div class="week-nav-group week-nav-group--end">
+                <span class="week-side-label" id="nextWeekLabel"></span>
+                <button class="ghost-btn week-arrow" id="nextWeekBtn" type="button">→</button>
+              </div>
               <span class="pill" id="weekBadge">Неделя 1</span>
             </div>
           </div>

@@ -315,7 +315,7 @@ async function loadSchedule(weekday) {
   try {
     showLoading("Синхронизация...");
     const lessons = await invokeWithTimeout("get_schedule_for_weekday", {
-      week_number: state.selectedWeekNumber,
+      weekNumber: state.selectedWeekNumber,
       weekday,
     });
     state.schedule = Array.isArray(lessons) ? lessons : [];
@@ -419,7 +419,7 @@ async function generatePlan() {
     showLoading("Генерация плана...");
     const result = await invokeWithTimeout(
       "generate_study_plan",
-      { week_number: state.selectedWeekNumber, weekday: state.selectedWeekday },
+      { weekNumber: state.selectedWeekNumber, weekday: state.selectedWeekday },
       45000,
     );
     document.getElementById("plannerOutput").textContent = result.plan || "План пока пуст.";
@@ -648,7 +648,7 @@ function renderWeekControls() {
   if (select && !select.options.length) {
     select.innerHTML = Array.from({ length: 52 }, (_, index) => {
       const week = index + 1;
-      return `<option value="${week}">Неделя ${week}</option>`;
+      return `<option value="${week}">?????? ${week}</option>`;
     }).join("");
   }
   if (select) {
@@ -656,8 +656,12 @@ function renderWeekControls() {
   }
   const label = document.getElementById("weekBadge");
   if (label) {
-    label.textContent = `Неделя ${state.selectedWeekNumber}`;
+    label.textContent = `?????? ${state.selectedWeekNumber} ? ${formatWeekRange(state.selectedWeekNumber)}`;
   }
+  const previousLabel = document.getElementById("previousWeekLabel");
+  const nextLabel = document.getElementById("nextWeekLabel");
+  if (previousLabel) previousLabel.textContent = state.selectedWeekNumber > 1 ? formatWeekRange(state.selectedWeekNumber - 1) : "";
+  if (nextLabel) nextLabel.textContent = state.selectedWeekNumber < 52 ? formatWeekRange(state.selectedWeekNumber + 1) : "";
 }
 
 async function changeWeek(delta) {
@@ -709,6 +713,23 @@ function openChat() {
 
 function closeChat() {
   document.getElementById("chatDrawer").classList.remove("is-open");
+}
+
+
+function formatWeekRange(weekNumber) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = jan4.getDay() || 7;
+  const monday = new Date(jan4);
+  monday.setDate(jan4.getDate() - (jan4Day - 1) + ((weekNumber - 1) * 7));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return `${formatDayMonth(monday)} - ${formatDayMonth(sunday)}`;
+}
+
+function formatDayMonth(date) {
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
 }
 
 function switchAuthTab(tab) {

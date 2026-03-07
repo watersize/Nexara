@@ -992,6 +992,27 @@ fn apply_time_overrides(
     lessons
 }
 
+fn merge_schedule_entries(
+    existing: Vec<ScheduleLesson>,
+    incoming: Vec<ScheduleLesson>,
+) -> Vec<ScheduleLesson> {
+    let mut merged = existing;
+    for lesson in incoming {
+        if let Some(index) = merged.iter().position(|item| {
+            (!lesson.start_time.trim().is_empty() && item.start_time == lesson.start_time)
+                || (!lesson.subject.trim().is_empty()
+                    && item.subject == lesson.subject
+                    && item.start_time == lesson.start_time)
+        }) {
+            merged[index] = lesson;
+        } else {
+            merged.push(lesson);
+        }
+    }
+    merged.sort_by(|left, right| left.start_time.cmp(&right.start_time));
+    merged
+}
+
 async fn load_schedule_cache(
     state: &AppState,
     user_key: String,
@@ -1475,6 +1496,9 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
         return Err("Добавь расписание, файл или уточнения по предметам.".to_string());
     }
 
+    let existing_lessons =
+        load_schedule_cache(&state, user_key.clone(), payload.week_number, payload.weekday).await?;
+
     let mut lessons = if !file_paths.is_empty() {
         let value = run_python_agent(
             &state,
@@ -1509,6 +1533,7 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
         load_schedule_cache(&state, user_key.clone(), payload.week_number, payload.weekday).await?
     };
 
+    lessons = merge_schedule_entries(existing_lessons, lessons);
     lessons = apply_subject_profiles(lessons, &profiles);
     lessons = apply_subject_overrides(lessons, &overrides);
     lessons = apply_time_overrides(lessons, &time_overrides);
