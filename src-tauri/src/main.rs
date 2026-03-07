@@ -15,7 +15,7 @@ use tokio::process::{Child, Command};
 
 const DEFAULT_SUPABASE_URL: &str = "https://qotqycihhexoflxzavqj.supabase.co";
 const DEFAULT_SUPABASE_KEY: &str = "sb_publishable_kG0Pz1veUgqLwzmOh38coA_9Q995YKF";
-const DEFAULT_GROQ_KEY: &str = "PASTE_GROQ_KEY_HERE";
+const DEFAULT_GROQ_KEY: &str = "";
 const SUBJECTS: [&str; 17] = [
     "Алгебра",
     "Геометрия",
@@ -396,6 +396,32 @@ fn project_root() -> Result<PathBuf, String> {
     }
 }
 
+fn resolve_groq_key(app: &AppHandle, workspace: &Path) -> String {
+    let mut candidates = Vec::new();
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join("groq.key"));
+        candidates.push(resource_dir.join("resources").join("groq.key"));
+    }
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            candidates.push(parent.join("groq.key"));
+            candidates.push(parent.join("resources").join("groq.key"));
+        }
+    }
+    candidates.push(workspace.join(".secrets").join("groq_key.txt"));
+
+    for candidate in candidates {
+        if let Ok(value) = std::fs::read_to_string(&candidate) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+
+    std::env::var("GROQ_API_KEY").unwrap_or_else(|_| DEFAULT_GROQ_KEY.to_string())
+}
+
 fn ensure_state(app: &AppHandle) -> Result<AppState, String> {
     let app_dir = app.path().app_data_dir().map_err(|err| err.to_string())?;
     std::fs::create_dir_all(&app_dir).map_err(|err| err.to_string())?;
@@ -417,7 +443,7 @@ fn ensure_state(app: &AppHandle) -> Result<AppState, String> {
         .to_string();
     let supabase_key =
         std::env::var("SUPABASE_ANON_KEY").unwrap_or_else(|_| DEFAULT_SUPABASE_KEY.to_string());
-    let groq_key = DEFAULT_GROQ_KEY.to_string();
+    let groq_key = resolve_groq_key(app, &workspace);
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(20))

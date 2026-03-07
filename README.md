@@ -58,6 +58,7 @@ cargo tauri dev
 ### GROQ API Setup (Automatic)
 
 The application includes built-in GROQ API key for immediate use. No manual configuration required!
+For repository safety, the key is bundled from a local `.secrets\groq_key.txt` file during release build and shipped inside the desktop package, so end users still do not need to configure anything manually.
 
 **Built-in Models:**
 - `llama-3.3-70b-versatile` - General AI assistant
@@ -78,13 +79,14 @@ echo "GROQ_API_KEY=your_groq_api_key_here" > .env
 ## 📦 Release Information
 
 ### Latest Release
-- **Version**: v0.2.0
+- **Version**: v0.2.1
 - **Size**: ~6.2 MB
 - **Type**: Standalone executable
 - **Requirements**: Windows 10/11 (x64)
 
 ### Release Features
 - ✅ **One-click execution** - no setup required
+- ✅ **Installer included** - `Nexara-Setup-0.2.1.exe`
 - ✅ **All dependencies embedded** - includes Python, Rust, web frontend
 - ✅ **Portable** - runs from any location
 - ✅ **Secure** - local authentication and data storage
@@ -138,10 +140,10 @@ cd python_ai && python python_agent.py        # AI services
 
 ### Build Release
 ```powershell
-# Build standalone executable
-cargo tauri build
+# Build portable app + installer
+powershell -ExecutionPolicy Bypass -File .\build-release.ps1
 
-# Output: target/release/schoolmate-proto.exe
+# Output: dist\Nexara\Nexara.exe and dist\Nexara-Setup-0.2.1.exe
 ```
 
 ### Environment Variables
@@ -230,7 +232,8 @@ cargo tauri dev
 All previous releases available in the [releases section](https://github.com/watersize/Nexara/releases).
 
 ### Build Artifacts
-- **Standalone exe**: `target/release/schoolmate-proto.exe`
+- **Portable exe**: `dist\Nexara\Nexara.exe`
+- **Installer exe**: `dist\Nexara-Setup-0.2.1.exe`
 - **Size**: ~6.2 MB
 - **Dependencies**: All embedded
 
@@ -257,4 +260,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**🚀 Nexara v0.2.0 - Your AI-powered educational assistant**
+**🚀 Nexara v0.2.1 - Bug fixing release with installer**

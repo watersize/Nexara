@@ -20,7 +20,7 @@ try:
 except Exception:
     telebot = None
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "PASTE_GROQ_KEY_HERE")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 TEXT_MODEL = os.getenv("GROQ_TEXT_MODEL", "llama-3.3-70b-versatile")
 VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "llama-3.2-90b-vision-preview")
@@ -76,7 +76,7 @@ def fail(message: str) -> None:
 
 
 def call_groq(model: str, messages: List[Dict], temperature: float = 0.2) -> str | None:
-    if not GROQ_API_KEY.strip() or GROQ_API_KEY == "PASTE_GROQ_KEY_HERE":
+    if not GROQ_API_KEY.strip():
         return None
     try:
         response = requests.post(

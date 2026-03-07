@@ -11,6 +11,14 @@ $agentDist = Join-Path $root 'python_ai\dist\agent.exe'
 $resourceAgent = Join-Path $root 'src-tauri\resources\agent.exe'
 $releaseExe = Join-Path $root 'target\release\schoolmate-proto.exe'
 $portableDir = Join-Path $root 'dist\Nexara'
+$installerOut = Join-Path $root 'dist\Nexara-Setup-0.2.1.exe'
+$secretDir = Join-Path $root '.secrets'
+$groqKeyFile = Join-Path $secretDir 'groq_key.txt'
+$portableGroqKey = Join-Path $portableDir 'groq.key'
+$installerWorkDir = Join-Path $root 'dist\installer-work'
+$installerZip = Join-Path $installerWorkDir 'Nexara-portable.zip'
+$installerScript = Join-Path $installerWorkDir 'install.cmd'
+$installerSed = Join-Path $installerWorkDir 'nexara-installer.sed'
 
 Write-Host 'Syncing frontend assets...'
 New-Item -ItemType Directory -Force $webDir | Out-Null
@@ -21,6 +29,10 @@ Copy-Item (Join-Path $root 'app.js') (Join-Path $webDir 'app.js') -Force
 if (-not (Test-Path $pythonExe)) {
   Write-Host 'Creating virtual environment...'
   python -m venv $venvDir
+}
+
+if (-not (Test-Path $groqKeyFile)) {
+  throw "Groq key file was not found: $groqKeyFile"
 }
 
 if (-not $SkipPythonInstall) {
@@ -58,7 +70,73 @@ Copy-Item $releaseExe (Join-Path $portableDir 'Nexara.exe') -Force
 Copy-Item $resourceAgent (Join-Path $portableDir 'agent.exe') -Force
 Copy-Item (Join-Path $root 'src-tauri\icons\icon.ico') (Join-Path $portableDir 'icon.ico') -Force
 Copy-Item (Join-Path $root 'src-tauri\icons\icon.png') (Join-Path $portableDir 'icon.png') -Force
+Copy-Item $groqKeyFile $portableGroqKey -Force
+
+Write-Host 'Building installer executable...'
+if (Test-Path $installerWorkDir) {
+  Remove-Item $installerWorkDir -Recurse -Force
+}
+New-Item -ItemType Directory -Force $installerWorkDir | Out-Null
+if (Test-Path $installerOut) {
+  Remove-Item $installerOut -Force
+}
+Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $installerZip -Force
+
+@'
+@echo off
+setlocal
+set "APPDIR=%LocalAppData%\Programs\Nexara"
+if exist "%APPDIR%" rmdir /S /Q "%APPDIR%"
+mkdir "%APPDIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%~dp0Nexara-portable.zip' -DestinationPath '%LOCALAPPDATA%\Programs\Nexara' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$shell = New-Object -ComObject WScript.Shell; $desktop = [Environment]::GetFolderPath('Desktop'); $programs = [Environment]::GetFolderPath('Programs'); $target = Join-Path $env:LOCALAPPDATA 'Programs\Nexara\Nexara.exe'; $workdir = Join-Path $env:LOCALAPPDATA 'Programs\Nexara'; $desktopShortcut = $shell.CreateShortcut((Join-Path $desktop 'Nexara.lnk')); $desktopShortcut.TargetPath = $target; $desktopShortcut.WorkingDirectory = $workdir; $desktopShortcut.IconLocation = $target; $desktopShortcut.Save(); $menuShortcut = $shell.CreateShortcut((Join-Path $programs 'Nexara.lnk')); $menuShortcut.TargetPath = $target; $menuShortcut.WorkingDirectory = $workdir; $menuShortcut.IconLocation = $target; $menuShortcut.Save()"
+start "" "%APPDIR%\Nexara.exe"
+exit /b 0
+'@ | Set-Content $installerScript -Encoding ASCII
+
+@"
+[Version]
+Class=IEXPRESS
+SEDVersion=3
+[Options]
+PackagePurpose=InstallApp
+ShowInstallProgramWindow=0
+HideExtractAnimation=1
+UseLongFileName=1
+InsideCompressed=0
+CAB_FixedSize=0
+CAB_ResvCodeSigning=0
+RebootMode=N
+InstallPrompt=
+DisplayLicense=
+FinishMessage=Nexara v0.2.1 was installed successfully.
+TargetName=$installerOut
+FriendlyName=Nexara v0.2.1 Setup
+AppLaunched=install.cmd
+PostInstallCmd=<None>
+AdminQuietInstCmd=install.cmd
+UserQuietInstCmd=install.cmd
+SourceFiles=SourceFiles
+[SourceFiles]
+SourceFiles0=$installerWorkDir\
+[SourceFiles0]
+install.cmd=
+Nexara-portable.zip=
+"@ | Set-Content $installerSed -Encoding ASCII
+
+$iexpress = Join-Path $env:WINDIR 'System32\iexpress.exe'
+if (-not (Test-Path $iexpress)) {
+  throw 'IExpress was not found on this Windows installation.'
+}
+& $iexpress /N /Q $installerSed | Out-Null
+if (-not (Test-Path $installerOut)) {
+  throw 'Installer executable was not produced.'
+}
+Remove-Item $installerWorkDir -Recurse -Force
 
 Write-Host ''
 Write-Host 'Portable release is ready:' -ForegroundColor Green
 Write-Host (Join-Path $portableDir 'Nexara.exe')
+Write-Host ''
+Write-Host 'Installer is ready:' -ForegroundColor Green
+Write-Host $installerOut

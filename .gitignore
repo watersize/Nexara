@@ -19,3 +19,4 @@ Dependencies_v2.2.0_x64.zip
 deps-chain.txt
 deps.json
 tools/Dependencies/
+.secrets/
