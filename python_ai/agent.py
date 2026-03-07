@@ -20,7 +20,7 @@ try:
 except Exception:
     telebot = None
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "PASTE_GROQ_KEY_HERE")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 TEXT_MODEL = os.getenv("GROQ_TEXT_MODEL", "llama-3.3-70b-versatile")
 VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "llama-3.2-90b-vision-preview")
@@ -76,16 +76,21 @@ def fail(message: str) -> None:
 
 
 def call_groq(model: str, messages: List[Dict], temperature: float = 0.2) -> str | None:
-    response = requests.post(
-        GROQ_URL,
-        headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "temperature": temperature},
-        timeout=120,
-    )
-    if not response.ok:
+    if not GROQ_API_KEY.strip() or GROQ_API_KEY == "PASTE_GROQ_KEY_HERE":
         return None
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
+    try:
+        response = requests.post(
+            GROQ_URL,
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+            json={"model": model, "messages": messages, "temperature": temperature},
+            timeout=120,
+        )
+        if not response.ok:
+            return None
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+    except requests.RequestException:
+        return None
 
 
 def parse_schedule(weekday: int, text: str, subjects: List[str]) -> Dict:

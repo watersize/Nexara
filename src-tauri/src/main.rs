@@ -15,7 +15,7 @@ use tokio::process::{Child, Command};
 
 const DEFAULT_SUPABASE_URL: &str = "https://qotqycihhexoflxzavqj.supabase.co";
 const DEFAULT_SUPABASE_KEY: &str = "sb_publishable_kG0Pz1veUgqLwzmOh38coA_9Q995YKF";
-const DEFAULT_GROQ_KEY: &str = "";
+const DEFAULT_GROQ_KEY: &str = "PASTE_GROQ_KEY_HERE";
 const SUBJECTS: [&str; 17] = [
     "Алгебра",
     "Геометрия",
@@ -417,7 +417,7 @@ fn ensure_state(app: &AppHandle) -> Result<AppState, String> {
         .to_string();
     let supabase_key =
         std::env::var("SUPABASE_ANON_KEY").unwrap_or_else(|_| DEFAULT_SUPABASE_KEY.to_string());
-    let groq_key = std::env::var("GROQ_API_KEY").unwrap_or_else(|_| DEFAULT_GROQ_KEY.to_string());
+    let groq_key = DEFAULT_GROQ_KEY.to_string();
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(20))
@@ -716,6 +716,8 @@ async fn run_python_agent(state: &AppState, action: &str, payload: Value) -> Res
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000);
 
     let mut child = command
         .spawn()
