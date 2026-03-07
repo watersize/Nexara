@@ -285,6 +285,16 @@ body.with-3d .tilt-card:hover {
   gap: 16px;
 }
 
+.lesson-card__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.lesson-card__delete {
+  padding: 8px 12px;
+}
+
 .lesson-card__time {
   font-weight: 800;
   font-size: 1.05rem;

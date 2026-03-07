@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -17,23 +17,23 @@ const DEFAULT_SUPABASE_URL: &str = "https://qotqycihhexoflxzavqj.supabase.co";
 const DEFAULT_SUPABASE_KEY: &str = "sb_publishable_kG0Pz1veUgqLwzmOh38coA_9Q995YKF";
 const DEFAULT_GROQ_KEY: &str = "";
 const SUBJECTS: [&str; 17] = [
-    "Алгебра",
-    "Геометрия",
-    "Вероятность и статистика",
-    "Русский язык",
-    "Физика",
-    "Химия",
-    "Биология",
-    "Физическая культура",
-    "География",
-    "Информатика",
-    "История",
-    "Обществознание",
-    "Английский язык",
-    "Литература",
-    "Технология",
-    "Классный час",
-    "ОБЖ",
+    "РђР»РіРµР±СЂР°",
+    "Р“РµРѕРјРµС‚СЂРёСЏ",
+    "Р’РµСЂРѕСЏС‚РЅРѕСЃС‚СЊ Рё СЃС‚Р°С‚РёСЃС‚РёРєР°",
+    "Р СѓСЃСЃРєРёР№ СЏР·С‹Рє",
+    "Р¤РёР·РёРєР°",
+    "РҐРёРјРёСЏ",
+    "Р‘РёРѕР»РѕРіРёСЏ",
+    "Р¤РёР·РёС‡РµСЃРєР°СЏ РєСѓР»СЊС‚СѓСЂР°",
+    "Р“РµРѕРіСЂР°С„РёСЏ",
+    "РРЅС„РѕСЂРјР°С‚РёРєР°",
+    "РСЃС‚РѕСЂРёСЏ",
+    "РћР±С‰РµСЃС‚РІРѕР·РЅР°РЅРёРµ",
+    "РђРЅРіР»РёР№СЃРєРёР№ СЏР·С‹Рє",
+    "Р›РёС‚РµСЂР°С‚СѓСЂР°",
+    "РўРµС…РЅРѕР»РѕРіРёСЏ",
+    "РљР»Р°СЃСЃРЅС‹Р№ С‡Р°СЃ",
+    "РћР‘Р–",
 ];
 
 #[derive(Clone)]
@@ -166,6 +166,12 @@ struct UploadTextbookPayload {
     mime_type: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct DeleteScheduleLessonPayload {
+    weekday: i64,
+    lesson: ScheduleLesson,
+}
+
 fn default_settings() -> AppSettings {
     AppSettings {
         theme: "theme-light".to_string(),
@@ -208,9 +214,11 @@ fn initialize_database(path: &Path) -> Result<(), String> {
             telegram_chat_id TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS schedule_cache (
-            weekday INTEGER PRIMARY KEY,
+            user_key TEXT NOT NULL DEFAULT 'guest',
+            weekday INTEGER NOT NULL,
             lessons_json TEXT NOT NULL DEFAULT '[]',
-            updated_at TEXT NOT NULL DEFAULT ''
+            updated_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_key, weekday)
         );
         CREATE TABLE IF NOT EXISTS material_store (
             hash TEXT PRIMARY KEY,
@@ -241,15 +249,17 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         .map_err(|err| err.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|err| err.to_string())?;
-    if !columns.iter().any(|column| column == "weekday") {
+    if !columns.iter().any(|column| column == "user_key") {
         conn.execute_batch(
             r#"
             DROP TABLE IF EXISTS schedule_cache_legacy;
             ALTER TABLE schedule_cache RENAME TO schedule_cache_legacy;
             CREATE TABLE schedule_cache (
-                weekday INTEGER PRIMARY KEY,
+                user_key TEXT NOT NULL DEFAULT 'guest',
+                weekday INTEGER NOT NULL,
                 lessons_json TEXT NOT NULL DEFAULT '[]',
-                updated_at TEXT NOT NULL DEFAULT ''
+                updated_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (user_key, weekday)
             );
             DROP TABLE schedule_cache_legacy;
             "#,
@@ -261,13 +271,13 @@ fn initialize_database(path: &Path) -> Result<(), String> {
 
 fn weekday_label(weekday: i64) -> String {
     match weekday {
-        1 => "Понедельник",
-        2 => "Вторник",
-        3 => "Среда",
-        4 => "Четверг",
-        5 => "Пятница",
-        6 => "Суббота",
-        _ => "Воскресенье",
+        1 => "РџРѕРЅРµРґРµР»СЊРЅРёРє",
+        2 => "Р’С‚РѕСЂРЅРёРє",
+        3 => "РЎСЂРµРґР°",
+        4 => "Р§РµС‚РІРµСЂРі",
+        5 => "РџСЏС‚РЅРёС†Р°",
+        6 => "РЎСѓР±Р±РѕС‚Р°",
+        _ => "Р’РѕСЃРєСЂРµСЃРµРЅСЊРµ",
     }
     .to_string()
 }
@@ -287,7 +297,7 @@ fn normalize_auth_error(raw: &str) -> String {
         || lower.contains("unexpected_failure")
         || lower.contains("confirmation email")
     {
-        return "Письмо подтверждения не отправилось, но локальный аккаунт уже создан.".to_string();
+        return "Аккаунт создан. Вход по email и паролю уже доступен внутри приложения.".to_string();
     }
     raw.to_string()
 }
@@ -604,15 +614,16 @@ async fn verify_local_account(state: &AppState, email: &str, password: &str) -> 
 
 async fn save_schedule_cache(
     state: &AppState,
+    user_key: String,
     weekday: i64,
     lessons: Vec<ScheduleLesson>,
 ) -> Result<(), String> {
     db_run(state.db_path.clone(), move |conn| {
         let json = serde_json::to_string(&lessons).map_err(|err| err.to_string())?;
         conn.execute(
-            "INSERT INTO schedule_cache (weekday, lessons_json, updated_at) VALUES (?1, ?2, ?3)
-             ON CONFLICT(weekday) DO UPDATE SET lessons_json = excluded.lessons_json, updated_at = excluded.updated_at",
-            params![weekday, json, Local::now().to_rfc3339()],
+            "INSERT INTO schedule_cache (user_key, weekday, lessons_json, updated_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(user_key, weekday) DO UPDATE SET lessons_json = excluded.lessons_json, updated_at = excluded.updated_at",
+            params![user_key, weekday, json, Local::now().to_rfc3339()],
         )
         .map_err(|err| err.to_string())?;
         Ok(())
@@ -620,18 +631,53 @@ async fn save_schedule_cache(
     .await
 }
 
-async fn load_schedule_cache(state: &AppState, weekday: i64) -> Result<Vec<ScheduleLesson>, String> {
+async fn load_schedule_cache(
+    state: &AppState,
+    user_key: String,
+    weekday: i64,
+) -> Result<Vec<ScheduleLesson>, String> {
     db_run(state.db_path.clone(), move |conn| {
         let json: String = conn
             .query_row(
-                "SELECT lessons_json FROM schedule_cache WHERE weekday = ?1",
-                [weekday],
+                "SELECT lessons_json FROM schedule_cache WHERE user_key = ?1 AND weekday = ?2",
+                params![user_key, weekday],
                 |row| row.get(0),
             )
             .unwrap_or_else(|_| "[]".to_string());
         serde_json::from_str::<Vec<ScheduleLesson>>(&json).map_err(|err| err.to_string())
     })
     .await
+}
+
+async fn delete_schedule_lesson_impl(
+    state: &AppState,
+    user_key: String,
+    weekday: i64,
+    lesson: ScheduleLesson,
+) -> Result<bool, String> {
+    let mut lessons = load_schedule_cache(state, user_key.clone(), weekday).await?;
+    let original_len = lessons.len();
+    let mut removed = false;
+    lessons.retain(|item| {
+        let is_match = !removed
+            && item.subject == lesson.subject
+            && item.teacher == lesson.teacher
+            && item.room == lesson.room
+            && item.start_time == lesson.start_time
+            && item.end_time == lesson.end_time
+            && item.notes == lesson.notes;
+        if is_match {
+            removed = true;
+            false
+        } else {
+            true
+        }
+    });
+    if !removed && original_len == lessons.len() {
+        return Ok(false);
+    }
+    save_schedule_cache(state, user_key, weekday, lessons).await?;
+    Ok(true)
 }
 
 async fn list_materials(state: &AppState, user_key: String) -> Result<Vec<MaterialRecord>, String> {
@@ -711,16 +757,16 @@ async fn post_supabase<T: Serialize, R: for<'de> Deserialize<'de>>(
 fn map_supabase_session(response: SupabaseAuthResponse) -> Result<AuthResponse, String> {
     let user = response
         .user
-        .ok_or_else(|| "Supabase не вернул пользователя".to_string())?;
+        .ok_or_else(|| "Supabase РЅРµ РІРµСЂРЅСѓР» РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ".to_string())?;
     let email = user.email.unwrap_or_default();
     let access_token = response
         .access_token
-        .ok_or_else(|| "Supabase не вернул access token".to_string())?;
+        .ok_or_else(|| "Supabase РЅРµ РІРµСЂРЅСѓР» access token".to_string())?;
     let refresh_token = response.refresh_token.unwrap_or_default();
 
     Ok(AuthResponse {
         ok: true,
-        message: "Вход выполнен".to_string(),
+        message: "Р’С…РѕРґ РІС‹РїРѕР»РЅРµРЅ".to_string(),
         session: Some(AuthSession {
             user_id: user.id,
             email: email.clone(),
@@ -747,7 +793,7 @@ async fn run_python_agent(state: &AppState, action: &str, payload: Value) -> Res
 
     let mut child = command
         .spawn()
-        .map_err(|err| format!("Ошибка запуска Python: {err}"))?;
+        .map_err(|err| format!("РћС€РёР±РєР° Р·Р°РїСѓСЃРєР° Python: {err}"))?;
     if let Some(mut stdin) = child.stdin.take() {
         let envelope = json!({ "action": action, "payload": payload }).to_string();
         stdin
@@ -762,7 +808,7 @@ async fn run_python_agent(state: &AppState, action: &str, payload: Value) -> Res
     if !output.status.success() {
         return Err(if stderr.trim().is_empty() { stdout } else { stderr });
     }
-    serde_json::from_str::<Value>(&stdout).map_err(|err| format!("Ошибка чтения ответа Python: {err}"))
+    serde_json::from_str::<Value>(&stdout).map_err(|err| format!("РћС€РёР±РєР° С‡С‚РµРЅРёСЏ РѕС‚РІРµС‚Р° Python: {err}"))
 }
 
 async fn rebuild_rag_index(state: &AppState, user_key: String) -> Result<(), String> {
@@ -796,7 +842,7 @@ async fn write_import_file(
 ) -> Result<PathBuf, String> {
     let bytes = BASE64
         .decode(extract_base64_payload(file_base64).as_bytes())
-        .map_err(|err| format!("Не удалось прочитать файл: {err}"))?;
+        .map_err(|err| format!("РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕС‡РёС‚Р°С‚СЊ С„Р°Р№Р»: {err}"))?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let hash = format!("{:x}", hasher.finalize());
@@ -843,12 +889,13 @@ async fn register_user(
 ) -> Result<AuthResponse, String> {
     let email = email.trim().to_lowercase();
     if email.is_empty() {
-        return Err("Укажи email.".to_string());
+        return Err("РЈРєР°Р¶Рё email.".to_string());
     }
     if password.trim().len() < 6 {
-        return Err("Пароль должен быть не короче 6 символов.".to_string());
+        return Err("РџР°СЂРѕР»СЊ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РЅРµ РєРѕСЂРѕС‡Рµ 6 СЃРёРјРІРѕР»РѕРІ.".to_string());
     }
     let payload = json!({ "email": email, "password": password });
+    let fallback_message = "Аккаунт создан. Вход по email и паролю уже доступен.".to_string();
 
     match post_supabase::<_, SupabaseAuthResponse>(&state, "/auth/v1/signup", &payload).await {
         Ok(response) => {
@@ -862,14 +909,14 @@ async fn register_user(
                 save_auth_session(&state, Some(session.clone())).await?;
                 Ok(AuthResponse {
                     ok: true,
-                    message: "Письмо подтверждения отправлено. Локальный вход уже доступен.".to_string(),
+                    message: fallback_message.clone(),
                     session: Some(session),
                 })
             }
         }
         Err(error) => {
             let friendly = normalize_auth_error(&error);
-            if friendly.contains("локальный аккаунт") {
+            if friendly.contains("локальный аккаунт") || friendly.contains("Вход по email") {
                 save_local_account(&state, &email, &password).await?;
                 let session = build_local_session(&email);
                 save_auth_session(&state, Some(session.clone())).await?;
@@ -897,7 +944,7 @@ async fn login_user(
         save_auth_session(&state, Some(session.clone())).await?;
         return Ok(AuthResponse {
             ok: true,
-            message: "Вход выполнен".to_string(),
+            message: "Р’С…РѕРґ РІС‹РїРѕР»РЅРµРЅ".to_string(),
             session: Some(session),
         });
     }
@@ -919,7 +966,7 @@ async fn recover_password(email: String, state: State<'_, AppState>) -> Result<O
     match post_supabase::<_, Value>(&state, "/auth/v1/recover", &payload).await {
         Ok(_) => Ok(OperationResult {
             ok: true,
-            message: "Письмо для восстановления отправлено.".to_string(),
+            message: "РџРёСЃСЊРјРѕ РґР»СЏ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ РѕС‚РїСЂР°РІР»РµРЅРѕ.".to_string(),
         }),
         Err(error) => Ok(OperationResult {
             ok: false,
@@ -933,7 +980,7 @@ async fn logout_user(state: State<'_, AppState>) -> Result<OperationResult, Stri
     save_auth_session(&state, None).await?;
     Ok(OperationResult {
         ok: true,
-        message: "Выход выполнен".to_string(),
+        message: "Р’С‹С…РѕРґ РІС‹РїРѕР»РЅРµРЅ".to_string(),
     })
 }
 
@@ -942,7 +989,7 @@ async fn save_settings(settings: AppSettings, state: State<'_, AppState>) -> Res
     save_settings_impl(&state, settings).await?;
     Ok(OperationResult {
         ok: true,
-        message: "Настройки сохранены".to_string(),
+        message: "РќР°СЃС‚СЂРѕР№РєРё СЃРѕС…СЂР°РЅРµРЅС‹".to_string(),
     })
 }
 
@@ -984,15 +1031,36 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
         )
         .await
     }
-    .map_err(|err| format!("Ошибка анализа расписания: {err}"))?;
+    .map_err(|err| format!("РћС€РёР±РєР° Р°РЅР°Р»РёР·Р° СЂР°СЃРїРёСЃР°РЅРёСЏ: {err}"))?;
 
     let parsed: PythonScheduleResponse =
         serde_json::from_value(value).map_err(|err| err.to_string())?;
-    save_schedule_cache(&state, payload.weekday, parsed.lessons).await?;
-    notify_status("Nexara".to_string(), "Расписание обновлено".to_string(), state.clone()).await?;
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    save_schedule_cache(&state, user_key, payload.weekday, parsed.lessons).await?;
+    notify_status("Nexara".to_string(), "Р Р°СЃРїРёСЃР°РЅРёРµ РѕР±РЅРѕРІР»РµРЅРѕ".to_string(), state.clone()).await?;
     Ok(OperationResult {
         ok: true,
-        message: "Расписание обновлено".to_string(),
+        message: "Р Р°СЃРїРёСЃР°РЅРёРµ РѕР±РЅРѕРІР»РµРЅРѕ".to_string(),
+    })
+}
+
+#[tauri::command]
+async fn delete_schedule_lesson(
+    payload: DeleteScheduleLessonPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let removed =
+        delete_schedule_lesson_impl(&state, user_key, payload.weekday, payload.lesson).await?;
+    Ok(OperationResult {
+        ok: removed,
+        message: if removed {
+            "Урок удалён.".to_string()
+        } else {
+            "Урок не найден.".to_string()
+        },
     })
 }
 
@@ -1005,9 +1073,9 @@ async fn upload_textbook(
     let user_key = local_user_key(session.as_ref());
     let bytes = BASE64
         .decode(extract_base64_payload(&payload.file_base64).as_bytes())
-        .map_err(|err| format!("Не удалось прочитать файл: {err}"))?;
+        .map_err(|err| format!("РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕС‡РёС‚Р°С‚СЊ С„Р°Р№Р»: {err}"))?;
     if bytes.is_empty() {
-        return Err("Файл пустой.".to_string());
+        return Err("Р¤Р°Р№Р» РїСѓСЃС‚РѕР№.".to_string());
     }
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
@@ -1035,7 +1103,7 @@ async fn upload_textbook(
     rebuild_rag_index(&state, user_key).await?;
     Ok(OperationResult {
         ok: true,
-        message: "Учебник добавлен в базу. Одинаковые файлы хранятся один раз.".to_string(),
+        message: "РЈС‡РµР±РЅРёРє РґРѕР±Р°РІР»РµРЅ РІ Р±Р°Р·Сѓ. РћРґРёРЅР°РєРѕРІС‹Рµ С„Р°Р№Р»С‹ С…СЂР°РЅСЏС‚СЃСЏ РѕРґРёРЅ СЂР°Р·.".to_string(),
     })
 }
 
@@ -1050,7 +1118,9 @@ async fn get_schedule_for_weekday(
     weekday: i64,
     state: State<'_, AppState>,
 ) -> Result<Vec<ScheduleLesson>, String> {
-    load_schedule_cache(&state, weekday).await
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    load_schedule_cache(&state, user_key, weekday).await
 }
 
 #[tauri::command]
@@ -1075,7 +1145,9 @@ async fn generate_study_plan(
     weekday: i64,
     state: State<'_, AppState>,
 ) -> Result<PlanResponse, String> {
-    let lessons = load_schedule_cache(&state, weekday).await?;
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let lessons = load_schedule_cache(&state, user_key, weekday).await?;
     let value = run_python_agent(
         &state,
         "generate_plan",
@@ -1128,6 +1200,7 @@ fn main() {
             logout_user,
             save_settings,
             save_schedule,
+            delete_schedule_lesson,
             upload_textbook,
             list_textbooks_command,
             get_schedule_for_weekday,

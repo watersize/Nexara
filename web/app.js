@@ -108,6 +108,7 @@ async function bootstrap() {
     if (state.authSession?.access_token) {
       await loadSchedule(state.selectedWeekday);
     } else {
+      state.schedule = [];
       renderSchedule();
       updateSummary();
     }
@@ -200,6 +201,27 @@ async function logout() {
     updateSummary();
   } catch (error) {
     console.error("logout failed", error);
+    showToast(normalizeError(error));
+  } finally {
+    hideLoading();
+  }
+}
+
+async function deleteLesson(lesson) {
+  try {
+    showLoading("Удаление урока...");
+    const result = await invokeWithTimeout("delete_schedule_lesson", {
+      payload: {
+        weekday: state.selectedWeekday,
+        lesson,
+      },
+    });
+    state.schedule = state.schedule.filter((item) => !sameLesson(item, lesson));
+    renderSchedule();
+    updateSummary();
+    showToast(result.message || "Урок удалён");
+  } catch (error) {
+    console.error("deleteLesson failed", error);
     showToast(normalizeError(error));
   } finally {
     hideLoading();
@@ -431,6 +453,15 @@ function renderSchedule() {
         ${materials.length ? `<p class="lesson-card__notes">Материалы: ${escapeHtml(materials.join(", "))}</p>` : ""}
       </div>
     `;
+    const actions = document.createElement("div");
+    actions.className = "lesson-card__actions";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "ghost-btn lesson-card__delete";
+    deleteButton.textContent = "Удалить";
+    deleteButton.addEventListener("click", () => deleteLesson(lesson));
+    actions.appendChild(deleteButton);
+    card.appendChild(actions);
     list.appendChild(card);
   });
 }
@@ -547,6 +578,15 @@ function switchAuthTab(tab) {
 
 function labelForWeekday(value) {
   return state.days.find((day) => day.value === value)?.label || "Понедельник";
+}
+
+function sameLesson(left, right) {
+  return left.subject === right.subject
+    && left.teacher === right.teacher
+    && left.room === right.room
+    && left.start_time === right.start_time
+    && left.end_time === right.end_time
+    && left.notes === right.notes;
 }
 
 function showLoading(text = "Загрузка...") {
