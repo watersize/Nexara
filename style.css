@@ -2,6 +2,10 @@
   --bg: #f6f3fb;
   --panel: #ffffff;
   --panel-soft: #f4eefb;
+  --panel-strong: #ffffff;
+  --panel-strong-text: #111111;
+  --panel-strong-muted: #625a78;
+  --panel-strong-border: #000000;
   --text: #111111;
   --muted: #625a78;
   --border: #000000;
@@ -49,6 +53,10 @@ body.theme-dark {
   --bg: #121017;
   --panel: #191620;
   --panel-soft: #211c2b;
+  --panel-strong: linear-gradient(135deg, #171127 0%, #130f1f 100%);
+  --panel-strong-text: #ffffff;
+  --panel-strong-muted: rgba(255, 255, 255, 0.72);
+  --panel-strong-border: rgba(255, 255, 255, 0.92);
   --text: #f6f1ff;
   --muted: #b9afd0;
   --border: #f6f1ff;
@@ -59,6 +67,10 @@ body.theme-contrast {
   --bg: #fffbe9;
   --panel: #ffffff;
   --panel-soft: #fff1c9;
+  --panel-strong: linear-gradient(135deg, #4f2cff 0%, #3116b9 100%);
+  --panel-strong-text: #ffffff;
+  --panel-strong-muted: rgba(255, 255, 255, 0.82);
+  --panel-strong-border: #000000;
   --text: #000000;
   --muted: #54482c;
   --border: #000000;
@@ -337,10 +349,8 @@ body.with-3d .tilt-card:hover {
   padding: 10px 12px;
   border: 2px solid var(--border);
   border-radius: 18px;
-  background:
-    radial-gradient(circle at top left, rgba(112, 48, 160, 0.2), transparent 30%),
-    linear-gradient(135deg, #171127 0%, #130f1f 100%);
-  color: #fff;
+  background: var(--panel-strong);
+  color: var(--panel-strong-text);
   box-shadow: 0 16px 28px rgba(21, 15, 34, 0.18);
 }
 
@@ -354,14 +364,14 @@ body.with-3d .tilt-card:hover {
   padding: 10px 0;
   font-size: 1.35rem;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--panel-strong-text) 10%, transparent);
+  color: var(--panel-strong-text);
+  border-color: var(--panel-strong-border);
 }
 
 .week-side-label {
   min-width: 92px;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--panel-strong-muted);
   font-size: 0.82rem;
   text-align: center;
 }
@@ -369,9 +379,9 @@ body.with-3d .tilt-card:hover {
 .week-range-pill {
   min-width: 176px;
   text-align: center;
-  background: #fff;
-  color: #16111f;
-  border-color: #fff;
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--panel-strong-border);
 }
 
 .workspace-grid {
