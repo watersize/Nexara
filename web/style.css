@@ -248,6 +248,18 @@ body.with-3d .tilt-card:hover {
   padding: 20px;
 }
 
+.modal-actions,
+.chat-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modal-actions {
+  justify-content: space-between;
+  margin-top: 18px;
+}
+
 .hero-card {
   display: flex;
   justify-content: space-between;
@@ -631,6 +643,11 @@ body.with-3d .tilt-card:hover {
   .workspace-grid,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .modal-actions,
+  .chat-actions {
+    display: grid;
   }
 
   .days-bar {

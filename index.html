@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="nexara-backend-url" content="" />
+    <meta name="nexara-telegram-bot" content="nexarapush_bot" />
     <title>Nexara</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
@@ -240,6 +242,13 @@
             <span>Telegram-уведомления</span>
             <input id="telegramEnabledInput" type="checkbox" />
           </label>
+          <div class="file-picker-card">
+            <div>
+              <strong>Статус Telegram</strong>
+              <p id="telegramStatusText">Telegram не подключен</p>
+            </div>
+            <button class="ghost-btn" id="bindTelegramBtn" type="button">Привязать Telegram</button>
+          </div>
           <label>
             <span>Bot Token</span>
             <input id="telegramBotTokenInput" type="text" placeholder="Telegram Bot Token" />
@@ -250,6 +259,7 @@
           </label>
         </div>
         <div class="modal-actions">
+          <button class="ghost-btn" id="deleteAccountBtn" type="button">Удалить аккаунт</button>
           <button class="primary-btn" id="saveSettingsBtn" type="button">Сохранить настройки</button>
         </div>
       </div>

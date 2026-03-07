@@ -4,7 +4,8 @@ create table if not exists public.users (
     id uuid primary key references auth.users (id) on delete cascade,
     email text not null unique,
     password_hash text,
-    telegram_chat_id text,
+    telegram_chat_id bigint null,
+    notes jsonb not null default '{}'::jsonb,
     created_at timestamptz not null default now()
 );
 
@@ -25,6 +26,12 @@ create table if not exists public.files (
     file_url text not null,
     created_at timestamptz not null default now()
 );
+
+alter table if exists public.users
+    alter column telegram_chat_id type bigint using nullif(telegram_chat_id::text, '')::bigint;
+
+alter table if exists public.users
+    add column if not exists notes jsonb not null default '{}'::jsonb;
 
 create index if not exists schedules_user_id_idx on public.schedules (user_id);
 create index if not exists files_user_id_idx on public.files (user_id);

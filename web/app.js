@@ -2,6 +2,8 @@ const tauriApi = window.__TAURI__ || {};
 const invoke = tauriApi.core?.invoke
   ? (command, args) => tauriApi.core.invoke(command, args)
   : async (command, args) => mockInvoke(command, args);
+const BACKEND_BASE_URL = (document.querySelector('meta[name="nexara-backend-url"]')?.content || "").trim().replace(/\/+$/, "");
+const TELEGRAM_BOT_USERNAME = (document.querySelector('meta[name="nexara-telegram-bot"]')?.content || "nexarapush_bot").trim();
 
 const state = {
   days: [],
@@ -80,6 +82,8 @@ function bindUi() {
   document.getElementById("scheduleFileInput")?.addEventListener("change", handleScheduleFilePick);
   document.getElementById("openSettingsBtn")?.addEventListener("click", () => openModal("settingsModal"));
   document.getElementById("saveSettingsBtn")?.addEventListener("click", saveSettings);
+  document.getElementById("bindTelegramBtn")?.addEventListener("click", bindTelegram);
+  document.getElementById("deleteAccountBtn")?.addEventListener("click", deleteAccount);
   document.querySelectorAll("[data-close-modal]").forEach((button) => {
     button.addEventListener("click", () => closeModal(button.dataset.closeModal));
   });
@@ -107,6 +111,7 @@ async function bootstrap() {
     applyAuthState();
     if (state.authSession?.access_token) {
       await loadSchedule(state.selectedWeekday);
+      await bootstrapCloudState();
     } else {
       state.schedule = [];
       renderSchedule();
@@ -131,8 +136,11 @@ async function login() {
     }
     state.authSession = response.session;
     applyAuthState();
+    applySettingsToUi();
     await refreshTextbooks();
     await loadSchedule(state.selectedWeekday);
+    await syncProfileToCloud();
+    await bootstrapCloudState();
     showToast(response.message || "Вход выполнен");
   } catch (error) {
     console.error("login failed", error);
@@ -154,8 +162,11 @@ async function register() {
     if (response.session) {
       state.authSession = response.session;
       applyAuthState();
+      applySettingsToUi();
       await refreshTextbooks();
       await loadSchedule(state.selectedWeekday);
+      await syncProfileToCloud();
+      await bootstrapCloudState();
     } else {
       switchAuthTab("login");
     }
@@ -196,11 +207,37 @@ async function logout() {
     state.schedule = [];
     state.textbooks = [];
     applyAuthState();
+    applySettingsToUi();
     renderTextbooks();
     renderSchedule();
     updateSummary();
   } catch (error) {
     console.error("logout failed", error);
+    showToast(normalizeError(error));
+  } finally {
+    hideLoading();
+  }
+}
+
+async function deleteAccount() {
+  if (!window.confirm("Удалить аккаунт и локальные данные на этом устройстве?")) {
+    return;
+  }
+  try {
+    showLoading("Удаление аккаунта...");
+    const result = await invokeWithTimeout("delete_account");
+    state.authSession = null;
+    state.schedule = [];
+    state.textbooks = [];
+    applyAuthState();
+    applySettingsToUi();
+    renderSchedule();
+    renderTextbooks();
+    updateSummary();
+    closeModal("settingsModal");
+    showToast(result.message || "Аккаунт удалён");
+  } catch (error) {
+    console.error("deleteAccount failed", error);
     showToast(normalizeError(error));
   } finally {
     hideLoading();
@@ -243,6 +280,7 @@ async function saveSettings() {
     const result = await invokeWithTimeout("save_settings", { settings });
     state.settings = settings;
     applySettingsToUi();
+    await syncProfileToCloud();
     closeModal("settingsModal");
     showToast(result.message || "Настройки сохранены");
   } catch (error) {
@@ -251,6 +289,19 @@ async function saveSettings() {
   } finally {
     hideLoading();
   }
+}
+
+function bindTelegram() {
+  if (!state.authSession?.user_id) {
+    showToast("Сначала войди в аккаунт.");
+    return;
+  }
+  if (!TELEGRAM_BOT_USERNAME) {
+    showToast("Укажи username Telegram-бота.");
+    return;
+  }
+  const link = `tg://resolve?domain=${encodeURIComponent(TELEGRAM_BOT_USERNAME)}&start=${encodeURIComponent(state.authSession.user_id)}`;
+  window.open(link, "_blank");
 }
 
 async function loadSchedule(weekday) {
@@ -296,6 +347,7 @@ async function saveSchedule() {
     renderDays();
     fillWeekdaySelect();
     await loadSchedule(payload.weekday);
+    await syncScheduleToCloud(payload.weekday);
     showToast(result.message || "Расписание обновлено");
   } catch (error) {
     console.error("saveSchedule failed", error);
@@ -532,6 +584,14 @@ function applySettingsToUi() {
   document.getElementById("telegramEnabledInput").checked = Boolean(state.settings.telegram_enabled);
   document.getElementById("telegramBotTokenInput").value = state.settings.telegram_bot_token || "";
   document.getElementById("telegramChatIdInput").value = state.settings.telegram_chat_id || "";
+  const telegramStatus = document.getElementById("telegramStatusText");
+  if (telegramStatus) {
+    telegramStatus.textContent = state.settings.telegram_chat_id ? "Telegram подключен" : "Telegram не подключен";
+  }
+  const telegramBindButton = document.getElementById("bindTelegramBtn");
+  if (telegramBindButton) {
+    telegramBindButton.disabled = !state.authSession?.user_id;
+  }
   document.getElementById("hintCard").style.display = state.settings.hints_enabled ? "" : "none";
 }
 
@@ -602,7 +662,7 @@ function showLoading(text = "Загрузка...") {
     loadingState.depth = 0;
     hideLoading(true);
     showToast("Превышено время ожидания");
-  }, 15000);
+  }, 10000);
   if (label) label.textContent = text;
   overlay.hidden = false;
   setSyncStatus(text);
@@ -637,6 +697,106 @@ async function invokeWithTimeout(command, args = {}, timeoutMs = 15000) {
     return await Promise.race([invoke(command, args), timeoutPromise]);
   } finally {
     if (timer) clearTimeout(timer);
+  }
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Accept: "application/json; charset=utf-8",
+        ...(options.headers || {}),
+      },
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      throw new Error(data.message || text || `HTTP ${response.status}`);
+    }
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("Превышено время ожидания");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function hasCloudBackend() {
+  return /^https?:\/\//i.test(BACKEND_BASE_URL);
+}
+
+async function syncProfileToCloud() {
+  if (!hasCloudBackend() || !state.authSession?.user_id || !state.authSession?.email) {
+    return null;
+  }
+  try {
+    return await fetchJsonWithTimeout(`${BACKEND_BASE_URL}/sync/profile`, {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: state.authSession.user_id,
+        email: state.authSession.email,
+        telegram_chat_id: state.settings.telegram_chat_id ? Number(state.settings.telegram_chat_id) : null,
+        notes: {},
+      }),
+    });
+  } catch (error) {
+    console.warn("syncProfileToCloud failed", error);
+    return null;
+  }
+}
+
+async function syncScheduleToCloud(weekday) {
+  if (!hasCloudBackend() || !state.authSession?.user_id) {
+    return null;
+  }
+  try {
+    return await fetchJsonWithTimeout(`${BACKEND_BASE_URL}/sync/schedule`, {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: state.authSession.user_id,
+        weekday,
+        lessons: state.schedule,
+      }),
+    });
+  } catch (error) {
+    console.warn("syncScheduleToCloud failed", error);
+    return null;
+  }
+}
+
+async function bootstrapCloudState() {
+  if (!hasCloudBackend() || !state.authSession?.user_id) {
+    return null;
+  }
+  try {
+    const data = await fetchJsonWithTimeout(
+      `${BACKEND_BASE_URL}/sync/bootstrap?user_id=${encodeURIComponent(state.authSession.user_id)}`,
+      { method: "GET" },
+    );
+    if (data && data.telegram_chat_id) {
+      state.settings.telegram_chat_id = String(data.telegram_chat_id);
+      applySettingsToUi();
+    }
+    if (Array.isArray(data?.schedules)) {
+      const current = data.schedules.find((item) => Number(item.weekday) === Number(state.selectedWeekday));
+      if (current && Array.isArray(current.lessons) && !state.schedule.length) {
+        state.schedule = current.lessons;
+        renderSchedule();
+        updateSummary();
+      }
+    }
+    return data;
+  } catch (error) {
+    console.warn("bootstrapCloudState failed", error);
+    return null;
   }
 }
 
@@ -718,7 +878,7 @@ async function mockInvoke(command, args = {}) {
       },
     };
   }
-  if (command === "recover_password" || command === "logout_user" || command === "save_settings" || command === "save_schedule" || command === "upload_textbook" || command === "notify_status") {
+  if (command === "recover_password" || command === "logout_user" || command === "save_settings" || command === "save_schedule" || command === "upload_textbook" || command === "notify_status" || command === "delete_account") {
     return { ok: true, message: "Готово" };
   }
   if (command === "list_textbooks_command") {

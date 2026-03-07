@@ -628,6 +628,55 @@ async fn verify_local_account(state: &AppState, email: &str, password: &str) -> 
     .await
 }
 
+async fn delete_local_account(state: &AppState, email: String) -> Result<(), String> {
+    db_run(state.db_path.clone(), move |conn| {
+        conn.execute("DELETE FROM local_accounts WHERE email = ?1", [email])
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    })
+    .await
+}
+
+async fn clear_user_data(state: &AppState, user_key: String) -> Result<(), String> {
+    db_run(state.db_path.clone(), move |conn| {
+        conn.execute("DELETE FROM schedule_cache WHERE user_key = ?1", [user_key.clone()])
+            .map_err(|err| err.to_string())?;
+        conn.execute("DELETE FROM subject_profiles WHERE user_key = ?1", [user_key.clone()])
+            .map_err(|err| err.to_string())?;
+        conn.execute("DELETE FROM user_materials WHERE user_key = ?1", [user_key])
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    })
+    .await
+}
+
+async fn delete_supabase_user_profile(state: &AppState, session: &AuthSession) -> Result<(), String> {
+    if session.user_id.trim().is_empty() || session.access_token.trim().is_empty() {
+        return Ok(());
+    }
+    let url = format!(
+        "{}/rest/v1/users?id=eq.{}",
+        state.supabase_url,
+        session.user_id
+    );
+    let response = state
+        .client
+        .delete(url)
+        .header("Content-Type", "application/json; charset=utf-8")
+        .header("Accept", "application/json; charset=utf-8")
+        .header("apikey", &state.supabase_key)
+        .header("Authorization", format!("Bearer {}", session.access_token))
+        .header("Prefer", "return=minimal")
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+    if response.status().is_success() || response.status().as_u16() == 404 {
+        return Ok(());
+    }
+    let body = response.text().await.map_err(|err| err.to_string())?;
+    Err(format!("Не удалось удалить профиль пользователя: {body}"))
+}
+
 async fn save_schedule_cache(
     state: &AppState,
     user_key: String,
@@ -1286,6 +1335,25 @@ async fn save_settings(settings: AppSettings, state: State<'_, AppState>) -> Res
 }
 
 #[tauri::command]
+async fn delete_account(state: State<'_, AppState>) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let Some(session) = session else {
+        return Err("Сначала войди в аккаунт.".to_string());
+    };
+    let user_key = local_user_key(Some(&session));
+    let _ = delete_supabase_user_profile(&state, &session).await;
+    clear_user_data(&state, user_key).await?;
+    if !session.email.trim().is_empty() {
+        let _ = delete_local_account(&state, session.email.clone()).await;
+    }
+    save_auth_session(&state, None).await?;
+    Ok(OperationResult {
+        ok: true,
+        message: "Аккаунт удалён на этом устройстве.".to_string(),
+    })
+}
+
+#[tauri::command]
 async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>) -> Result<OperationResult, String> {
     let session = load_auth_session(&state).await?;
     let user_key = local_user_key(session.as_ref());
@@ -1514,6 +1582,7 @@ fn main() {
             recover_password,
             logout_user,
             save_settings,
+            delete_account,
             save_schedule,
             delete_schedule_lesson,
             upload_textbook,
