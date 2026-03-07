@@ -47,7 +47,7 @@ Nexara/
 ## Setup
 
 ```powershell
-cd C:\Users\1thproj\Documents\ai
+cd C:\Users\username\Documents\ai
 python -m venv .venv
 .venv\Scripts\python -m pip install -r python_ai\requirements.txt
 $env:GROQ_API_KEY="your_groq_api_key"
@@ -56,16 +56,16 @@ $env:GROQ_API_KEY="your_groq_api_key"
 ## Run
 
 ```powershell
-cd C:\Users\1thproj\Documents\ai\src-tauri
+cd C:\Users\username\Documents\ai\src-tauri
 cargo tauri dev --no-watch
 ```
 
 ## Build Checks
 
 ```powershell
-cargo check --manifest-path C:\Users\1thproj\Documents\ai\src-tauri\Cargo.toml
-python -m py_compile C:\Users\1thproj\Documents\ai\python_ai\agent.py
-node --check C:\Users\1thproj\Documents\ai\app.js
+cargo check --manifest-path C:\Users\username\Documents\ai\src-tauri\Cargo.toml
+python -m py_compile C:\Users\username\Documents\ai\python_ai\agent.py
+node --check C:\Users\username\Documents\ai\app.js
 ```
 
 ## Notes
