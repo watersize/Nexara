@@ -119,6 +119,18 @@
               <span class="eyebrow">Неделя</span>
               <h3>Выбор дня</h3>
             </div>
+            <div class="week-toolbar">
+              <div class="week-nav-group">
+                <button class="ghost-btn week-arrow" id="previousWeekBtn" type="button" aria-label="Предыдущая неделя">←</button>
+                <span class="week-side-label" id="previousWeekLabel"></span>
+              </div>
+              <select id="weekNumberSelect" aria-label="Номер недели"></select>
+              <span class="pill week-range-pill" id="weekBadge">Неделя 1</span>
+              <div class="week-nav-group week-nav-group--end">
+                <span class="week-side-label" id="nextWeekLabel"></span>
+                <button class="ghost-btn week-arrow" id="nextWeekBtn" type="button" aria-label="Следующая неделя">→</button>
+              </div>
+            </div>
           </div>
           <div class="days-bar" id="daysBar"></div>
         </section>

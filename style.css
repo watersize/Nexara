@@ -2,6 +2,10 @@
   --bg: #f6f3fb;
   --panel: #ffffff;
   --panel-soft: #f4eefb;
+  --panel-strong: #ffffff;
+  --panel-strong-text: #111111;
+  --panel-strong-muted: #625a78;
+  --panel-strong-border: #000000;
   --text: #111111;
   --muted: #625a78;
   --border: #000000;
@@ -49,6 +53,10 @@ body.theme-dark {
   --bg: #121017;
   --panel: #191620;
   --panel-soft: #211c2b;
+  --panel-strong: linear-gradient(135deg, #171127 0%, #130f1f 100%);
+  --panel-strong-text: #ffffff;
+  --panel-strong-muted: rgba(255, 255, 255, 0.72);
+  --panel-strong-border: rgba(255, 255, 255, 0.92);
   --text: #f6f1ff;
   --muted: #b9afd0;
   --border: #f6f1ff;
@@ -59,6 +67,10 @@ body.theme-contrast {
   --bg: #fffbe9;
   --panel: #ffffff;
   --panel-soft: #fff1c9;
+  --panel-strong: linear-gradient(135deg, #4f2cff 0%, #3116b9 100%);
+  --panel-strong-text: #ffffff;
+  --panel-strong-muted: rgba(255, 255, 255, 0.82);
+  --panel-strong-border: #000000;
   --text: #000000;
   --muted: #54482c;
   --border: #000000;
@@ -303,6 +315,68 @@ body.with-3d .tilt-card:hover {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.days-panel .panel-head {
+  align-items: flex-start;
+}
+
+#weekNumberSelect {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+
+.week-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  padding: 12px 14px;
+  border: 2px solid var(--panel-strong-border);
+  border-radius: 18px;
+  background: var(--panel-strong);
+  color: var(--panel-strong-text);
+  box-shadow: 0 16px 28px rgba(21, 15, 34, 0.18);
+}
+
+.week-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.week-nav-group--end {
+  justify-content: flex-end;
+}
+
+.week-arrow {
+  width: 50px;
+  min-width: 50px;
+  padding: 10px 0;
+  font-size: 1.3rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--panel-strong-text) 10%, transparent);
+  color: var(--panel-strong-text);
+  border-color: var(--panel-strong-border);
+}
+
+.week-side-label {
+  min-width: 92px;
+  font-size: 0.82rem;
+  color: var(--panel-strong-muted);
+  text-align: center;
+}
+
+.week-range-pill {
+  min-width: 210px;
+  text-align: center;
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--panel-strong-border);
 }
 
 .workspace-grid {
@@ -646,8 +720,14 @@ body.with-3d .tilt-card:hover {
   }
 
   .modal-actions,
-  .chat-actions {
+  .chat-actions,
+  .week-toolbar {
     display: grid;
+  }
+
+  .week-nav-group,
+  .week-nav-group--end {
+    justify-content: start;
   }
 
   .days-bar {
