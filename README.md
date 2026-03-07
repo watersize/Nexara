@@ -57,6 +57,7 @@ $env:GROQ_API_KEY="your_groq_api_key"
 
 ```powershell
 cd C:\Users\username\Documents\ai\src-tauri
+Set-Location web; python -m http.server 1420
 cargo tauri dev --no-watch
 ```
 
