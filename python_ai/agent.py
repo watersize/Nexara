@@ -90,20 +90,24 @@ def call_groq(model: str, messages: List[Dict], temperature: float = 0.2) -> str
 
 def parse_schedule(weekday: int, text: str, subjects: List[str]) -> Dict:
     if not text.strip():
-        raise ValueError("Пустой текст расписания")
+        raise ValueError("Schedule text is empty")
     system = (
-        "Распознай школьное расписание. Выдели предметы, время, кабинеты, учителя и заметки. "
-        f"Используй только предметы из списка: {', '.join(subjects)}. "
-        "Если указан только старт и длительность, посчитай конец урока. Верни только JSON {\"lessons\":[...]}"
+        "Parse a school schedule. Extract subjects, times, rooms, teachers, and notes. "
+        f"Use only subjects from this list: {', '.join(subjects)}. "
+        "If only a start time and lesson duration are given, calculate the end time. Return only JSON {\"lessons\":[...]}"
     )
+    fallback_lessons = fallback_parse(text, subjects)
     raw = call_groq(TEXT_MODEL, [{"role": "system", "content": system}, {"role": "user", "content": text}], 0.1)
     if raw:
         try:
             parsed = json.loads(extract_json(raw))
-            return {"lessons": normalize_lessons(parsed.get("lessons", []), subjects)}
+            normalized = normalize_lessons(parsed.get("lessons", []), subjects)
+            if len(fallback_lessons) > len(normalized):
+                return {"lessons": fallback_lessons}
+            return {"lessons": normalized}
         except Exception:
             pass
-    return {"lessons": fallback_parse(text, subjects)}
+    return {"lessons": fallback_lessons}
 
 
 def parse_schedule_from_files(weekday: int, file_paths: List[str], subjects: List[str]) -> Dict:
@@ -115,7 +119,7 @@ def parse_schedule_from_files(weekday: int, file_paths: List[str], subjects: Lis
         extracted.append(extract_text_from_file(path))
     text = "\n".join(part for part in extracted if part.strip())
     if not text.strip():
-        raise ValueError("Не удалось извлечь текст из файлов")
+        raise ValueError("Could not extract text from files")
     return parse_schedule(weekday, text, subjects)
 
 
@@ -136,7 +140,7 @@ def ocr_with_vision(path: Path) -> str:
     messages = [{
         "role": "user",
         "content": [
-            {"type": "text", "text": "Распознай текст на изображении/файле, выдели предметы, время и кабинеты. Сопоставь их с днями недели. Если данные неполные, подгони их под стандартную школьную сетку. Верни только распознанный текст."},
+            {"type": "text", "text": "Recognize the text in the image or file, extract subjects, times, rooms, and weekday hints. If data is incomplete, adapt it to a standard school schedule. Return only the recognized text."},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
         ],
     }]
@@ -169,13 +173,35 @@ def pdf_to_chunks(path: Path) -> List[str]:
 
 def fallback_parse(text: str, subjects: List[str]) -> List[Dict]:
     lessons = []
-    for line in [part.strip() for part in re.split(r"\n+|;", text) if part.strip()]:
-        subject = next((item for item in subjects if item.lower() in line.lower()), "Классный час")
+    lesson_duration = extract_minutes(
+        text,
+        r"(?:\u043a\u0430\u0436(?:\u0434\u044b\u0439|\u0434\u043e\u0435|\u0434\u0430\u044f)\s+\u0443\u0440\u043e\u043a(?:\s+\u0438\u0434\u0435\u0442)?|\u0443\u0440\u043e\u043a(?:\s+\u0438\u0434\u0435\u0442)?)\s*(?:\u043f\u043e|\u0438\u0434\u0435\u0442)?\s*(\d{2,3})\s*\u043c\u0438\u043d",
+    ) or 45
+    break_duration = extract_minutes(text, r"\u043f\u0435\u0440\u0435\u043c\u0435\u043d[\u0430\u044b]\s*(\d{1,3})\s*\u043c\u0438\u043d") or 10
+    previous_end_time = ""
+    base_start_time = extract_first_time(text) or "08:30"
+    for index, line in enumerate(split_schedule_segments(text)):
+        line = line.strip(" .;,\n\t")
+        if not line:
+            continue
+        subject = next((item for item in subjects if item.lower() in line.lower()), "\u041a\u043b\u0430\u0441\u0441\u043d\u044b\u0439 \u0447\u0430\u0441")
         start = re.search(r"(\d{1,2}:\d{2})", line)
-        end = re.search(r"(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})", line)
-        start_time = start.group(1) if start else "08:30"
-        end_time = end.group(2) if end else add_minutes(start_time, int(re.search(r"(\d{2,3})\s*мин", line, re.I).group(1)) if re.search(r"(\d{2,3})\s*мин", line, re.I) else 45)
-        room = re.search(r"(?:каб(?:инет)?|аудитория)\s*([0-9A-Za-zА-Яа-я-]+)", line, re.I)
+        end = re.search(r"(\d{1,2}:\d{2})\s*[-?]\s*(\d{1,2}:\d{2})", line)
+        duration = extract_minutes(line, r"(\d{2,3})\s*(?:\u043c\u0438\u043d|min)") or lesson_duration
+        if end:
+            start_time = normalize_time(end.group(1))
+            end_time = normalize_time(end.group(2))
+        elif start:
+            start_time = normalize_time(start.group(1))
+            end_time = add_minutes(start_time, duration)
+        elif previous_end_time:
+            start_time = add_minutes(previous_end_time, break_duration)
+            end_time = add_minutes(start_time, duration)
+        else:
+            start_time = base_start_time if index == 0 else add_minutes(base_start_time, index * (lesson_duration + break_duration))
+            end_time = add_minutes(start_time, duration)
+        room = re.search(r"(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|\u0430\u0443\u0434\u0438\u0442\u043e\u0440\u0438\u044f)\s*([0-9A-Za-z\u0410-\u042f\u0430-\u044f-]+)", line, re.I)
+        previous_end_time = end_time
         lessons.append({
             "subject": subject,
             "teacher": "",
@@ -186,9 +212,48 @@ def fallback_parse(text: str, subjects: List[str]) -> List[Dict]:
             "materials": extract_materials(line),
         })
     if not lessons:
-        raise ValueError("Не удалось распознать расписание")
+        raise ValueError("Could not parse schedule")
     return lessons
 
+
+def split_schedule_segments(text: str) -> List[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) > 1:
+        return lines
+
+    normalized = re.sub(r"\s+", " ", text.replace("\r", " ")).strip()
+    ordinal_pattern = re.compile(
+        r"(?i)(?:^|[;,]\s*|\.\s*)(?:\d{1,2}\s*(?:\u0443\u0440\u043e\u043a)?|\u043f\u0435\u0440\u0432(?:\u044b\u0439|\u043e\u0435)|\u0432\u0442\u043e\u0440(?:\u043e\u0439|\u043e\u0435)|\u0442\u0440\u0435\u0442(?:\u0438\u0439|\u044c\u0435)|\u0447\u0435\u0442\u0432\u0435\u0440\u0442(?:\u044b\u0439|\u043e\u0435)|\u043f\u044f\u0442(?:\u044b\u0439|\u043e\u0435)|\u0448\u0435\u0441\u0442(?:\u043e\u0439|\u043e\u0435)|\u0441\u0435\u0434\u044c\u043c(?:\u043e\u0439|\u043e\u0435)|\u0432\u043e\u0441\u044c\u043c(?:\u043e\u0439|\u043e\u0435)|\u0434\u0435\u0432\u044f\u0442(?:\u044b\u0439|\u043e\u0435)|\u0434\u0435\u0441\u044f\u0442(?:\u044b\u0439|\u043e\u0435))\s*[-:?]?"
+    )
+    positions = [match.start() for match in ordinal_pattern.finditer(normalized)]
+    if positions:
+        positions.append(len(normalized))
+        chunks = []
+        for index in range(len(positions) - 1):
+            chunk = normalized[positions[index]:positions[index + 1]].strip(" ,.;")
+            if chunk:
+                chunks.append(chunk)
+        if chunks:
+            return chunks
+
+    return [part.strip() for part in re.split(r"\n+|;", text) if part.strip()]
+
+
+def extract_minutes(text: str, pattern: str) -> int | None:
+    match = re.search(pattern, text, re.I)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def extract_first_time(text: str) -> str | None:
+    match = re.search(r"(\d{1,2}:\d{2})", text)
+    if not match:
+        return None
+    return normalize_time(match.group(1))
 
 def normalize_lessons(lessons: List[Dict], subjects: List[str]) -> List[Dict]:
     normalized = []

@@ -44,7 +44,7 @@ struct AppState {
     materials_dir: PathBuf,
     rag_dir: PathBuf,
     python_path: PathBuf,
-    python_script: PathBuf,
+    python_script: Option<PathBuf>,
     supabase_url: String,
     supabase_key: String,
     groq_key: String,
@@ -352,12 +352,36 @@ fn extension_for_mime(file_name: &str, mime: &str) -> &'static str {
     }
 }
 
-fn ensure_python_path(workspace: &Path) -> PathBuf {
+fn resolve_agent_runtime(app: &AppHandle, workspace: &Path) -> (PathBuf, Option<PathBuf>) {
+    let mut candidates = Vec::new();
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join("agent.exe"));
+        candidates.push(resource_dir.join("resources").join("agent.exe"));
+    }
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            candidates.push(parent.join("agent.exe"));
+            candidates.push(parent.join("resources").join("agent.exe"));
+        }
+    }
+    candidates.push(workspace.join("src-tauri").join("resources").join("agent.exe"));
+    candidates.push(workspace.join("python_ai").join("dist").join("agent.exe"));
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return (candidate, None);
+        }
+    }
+
     let venv_python = workspace.join(".venv").join("Scripts").join("python.exe");
     if venv_python.exists() {
-        return venv_python;
+        return (venv_python, Some(workspace.join("python_ai").join("agent.py")));
     }
-    PathBuf::from("python")
+
+    (
+        PathBuf::from("python"),
+        Some(workspace.join("python_ai").join("agent.py")),
+    )
 }
 
 fn project_root() -> Result<PathBuf, String> {
@@ -385,8 +409,7 @@ fn ensure_state(app: &AppHandle) -> Result<AppState, String> {
     initialize_database(&db_path)?;
 
     let workspace = project_root()?;
-    let python_path = ensure_python_path(&workspace);
-    let python_script = workspace.join("python_ai").join("agent.py");
+    let (python_path, python_script) = resolve_agent_runtime(app, &workspace);
 
     let supabase_url = std::env::var("SUPABASE_URL")
         .unwrap_or_else(|_| DEFAULT_SUPABASE_URL.to_string())
@@ -684,8 +707,10 @@ fn map_supabase_session(response: SupabaseAuthResponse) -> Result<AuthResponse, 
 
 async fn run_python_agent(state: &AppState, action: &str, payload: Value) -> Result<Value, String> {
     let mut command = Command::new(&state.python_path);
+    if let Some(script) = &state.python_script {
+        command.arg(script);
+    }
     command
-        .arg(&state.python_script)
         .env("PYTHONUTF8", "1")
         .env("GROQ_API_KEY", &state.groq_key)
         .stdin(std::process::Stdio::piped())

@@ -5,3 +5,17 @@ python_ai/__pycache__/
 *.db
 *.sqlite
 *.sqlite3
+dist/
+python_ai/build/
+python_ai/dist/
+python_ai/agent.spec
+src-tauri/resources/
+src-tauri/gen/
+src-tauri/src/assets/
+src-tauri/test.exe
+src-tauri/test.pdb
+go_backend/*.exe
+Dependencies_v2.2.0_x64.zip
+deps-chain.txt
+deps.json
+tools/Dependencies/

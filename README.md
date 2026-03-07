@@ -1,10 +1,61 @@
-# Nexara
+﻿# Nexara
 
-Nexara is a cross-platform school planner built with Tauri v2, Rust, SQLite and a local Python AI sidecar.
+Nexara is a desktop school planner built with Tauri v2, Rust, SQLite and a bundled AI sidecar.
 
-## What Works
+## Release Build
 
-- Email registration and login with local fallback
+This repository includes one-click Windows build scripts that produce a standalone desktop build.
+
+Double-click this file in Explorer:
+
+```text
+C:\Users\1thproj\Documents\ai\build-release.bat
+```
+
+Or run the PowerShell script directly:
+
+```powershell
+cd C:\Users\1thproj\Documents\ai
+powershell -ExecutionPolicy Bypass -File .\build-release.ps1
+```
+
+After the script finishes, open:
+
+```text
+C:\Users\1thproj\Documents\ai\dist\Nexara\Nexara.exe
+```
+
+The portable folder already contains everything required to run the app:
+
+- `Nexara.exe`
+- `agent.exe`
+- app icons
+
+No localhost or separate dev server is required for the release executable.
+The build script copies the fresh Tauri release binary from `target\release`, so `dist\Nexara\Nexara.exe` is always updated from the latest build.
+
+## Development
+
+```powershell
+cd C:\Users\1thproj\Documents\ai
+python -m venv .venv
+.venv\Scripts\python -m pip install -r python_ai\requirements.txt
+$env:GROQ_API_KEY="your_groq_api_key"
+cd src-tauri
+cargo tauri dev --no-watch
+```
+
+## Stack
+
+- Desktop shell: Tauri v2 + Rust
+- Frontend: HTML, CSS, Vanilla JavaScript
+- Local database: SQLite
+- AI engine: Python sidecar bundled as `agent.exe`
+- Models: Groq `llama-3.3-70b-versatile` and `llama-3.2-90b-vision-preview`
+
+## Main Features
+
+- Email login with local fallback
 - Weekly schedule management
 - Smart schedule import from text, screenshots, PDF, DOCX and TXT
 - AI chat powered by Groq
@@ -12,65 +63,16 @@ Nexara is a cross-platform school planner built with Tauri v2, Rust, SQLite and 
 - Personal study plan generation
 - Local settings for theme, hints, 3D mode and Telegram fields
 
-## Stack
-
-- Desktop shell: Tauri v2 + Rust
-- Frontend: HTML, CSS, Vanilla JavaScript
-- Local database: SQLite
-- AI engine: Python (`python_ai/agent.py`)
-- Models: Groq `llama-3.3-70b-versatile` and `llama-3.2-90b-vision-preview`
-
-## Project Layout
-
-```text
-Nexara/
-├── index.html
-├── style.css
-├── app.js
-├── web/
-├── python_ai/
-│   ├── agent.py
-│   └── requirements.txt
-└── src-tauri/
-    ├── Cargo.toml
-    ├── tauri.conf.json
-    ├── icons/
-    └── src/main.rs
-```
-
-## Requirements
-
-- Rust stable
-- Python 3.10+
-- WebView2 Runtime on Windows
-
-## Setup
+## Checks
 
 ```powershell
-cd C:\Users\username\Documents\ai
-python -m venv .venv
-.venv\Scripts\python -m pip install -r python_ai\requirements.txt
-$env:GROQ_API_KEY="your_groq_api_key"
-```
-
-## Run
-
-```powershell
-cd C:\Users\username\Documents\ai\src-tauri
-Set-Location web; python -m http.server 1420
-cargo tauri dev --no-watch
-```
-
-## Build Checks
-
-```powershell
-cargo check --manifest-path C:\Users\username\Documents\ai\src-tauri\Cargo.toml
-python -m py_compile C:\Users\username\Documents\ai\python_ai\agent.py
-node --check C:\Users\username\Documents\ai\app.js
+cargo check --manifest-path C:\Users\1thproj\Documents\ai\src-tauri\Cargo.toml
+python -m py_compile C:\Users\1thproj\Documents\ai\python_ai\agent.py
+node --check C:\Users\1thproj\Documents\ai\app.js
 ```
 
 ## Notes
 
-- The app stores user data locally in the Tauri app data directory.
+- User data is stored in the Tauri app data directory.
 - PDF textbooks are deduplicated by file hash.
-- If Supabase confirmation email fails, Nexara creates a local account so the user can continue working.
+- The release script regenerates the app branding and bundles the local AI sidecar.
