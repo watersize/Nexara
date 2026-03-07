@@ -104,7 +104,6 @@ struct BootstrapPayload {
     days: Vec<WeekdayOption>,
     subjects: Vec<String>,
     default_weekday: i64,
-    default_week_number: i64,
     auth_session: Option<AuthSession>,
     settings: AppSettings,
     textbooks: Vec<MaterialRecord>,
@@ -154,7 +153,6 @@ struct PythonScheduleResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SaveSchedulePayload {
-    week_number: i64,
     weekday: i64,
     text: String,
     details_text: String,
@@ -172,21 +170,8 @@ struct UploadTextbookPayload {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct DeleteScheduleLessonPayload {
-    week_number: i64,
     weekday: i64,
     lesson: ScheduleLesson,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct DeleteTextbookPayload {
-    hash: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct CloneQuarterPayload {
-    source_week_number: i64,
-    target_start_week: i64,
-    target_end_week: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -238,11 +223,10 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         );
         CREATE TABLE IF NOT EXISTS schedule_cache (
             user_key TEXT NOT NULL DEFAULT 'guest',
-            week_number INTEGER NOT NULL DEFAULT 1,
             weekday INTEGER NOT NULL,
             lessons_json TEXT NOT NULL DEFAULT '[]',
             updated_at TEXT NOT NULL DEFAULT '',
-            PRIMARY KEY (user_key, week_number, weekday)
+            PRIMARY KEY (user_key, weekday)
         );
         CREATE TABLE IF NOT EXISTS subject_profiles (
             user_key TEXT NOT NULL,
@@ -281,20 +265,17 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         .map_err(|err| err.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|err| err.to_string())?;
-    if !columns.iter().any(|column| column == "user_key")
-        || !columns.iter().any(|column| column == "week_number")
-    {
+    if !columns.iter().any(|column| column == "user_key") {
         conn.execute_batch(
             r#"
             DROP TABLE IF EXISTS schedule_cache_legacy;
             ALTER TABLE schedule_cache RENAME TO schedule_cache_legacy;
             CREATE TABLE schedule_cache (
                 user_key TEXT NOT NULL DEFAULT 'guest',
-                week_number INTEGER NOT NULL DEFAULT 1,
                 weekday INTEGER NOT NULL,
                 lessons_json TEXT NOT NULL DEFAULT '[]',
                 updated_at TEXT NOT NULL DEFAULT '',
-                PRIMARY KEY (user_key, week_number, weekday)
+                PRIMARY KEY (user_key, weekday)
             );
             DROP TABLE schedule_cache_legacy;
             "#,
@@ -699,16 +680,15 @@ async fn delete_supabase_user_profile(state: &AppState, session: &AuthSession) -
 async fn save_schedule_cache(
     state: &AppState,
     user_key: String,
-    week_number: i64,
     weekday: i64,
     lessons: Vec<ScheduleLesson>,
 ) -> Result<(), String> {
     db_run(state.db_path.clone(), move |conn| {
         let json = serde_json::to_string(&lessons).map_err(|err| err.to_string())?;
         conn.execute(
-            "INSERT INTO schedule_cache (user_key, week_number, weekday, lessons_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(user_key, week_number, weekday) DO UPDATE SET lessons_json = excluded.lessons_json, updated_at = excluded.updated_at",
-            params![user_key, week_number, weekday, json, Local::now().to_rfc3339()],
+            "INSERT INTO schedule_cache (user_key, weekday, lessons_json, updated_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(user_key, weekday) DO UPDATE SET lessons_json = excluded.lessons_json, updated_at = excluded.updated_at",
+            params![user_key, weekday, json, Local::now().to_rfc3339()],
         )
         .map_err(|err| err.to_string())?;
         Ok(())
@@ -992,38 +972,16 @@ fn apply_time_overrides(
     lessons
 }
 
-fn merge_schedule_entries(
-    existing: Vec<ScheduleLesson>,
-    incoming: Vec<ScheduleLesson>,
-) -> Vec<ScheduleLesson> {
-    let mut merged = existing;
-    for lesson in incoming {
-        if let Some(index) = merged.iter().position(|item| {
-            (!lesson.start_time.trim().is_empty() && item.start_time == lesson.start_time)
-                || (!lesson.subject.trim().is_empty()
-                    && item.subject == lesson.subject
-                    && item.start_time == lesson.start_time)
-        }) {
-            merged[index] = lesson;
-        } else {
-            merged.push(lesson);
-        }
-    }
-    merged.sort_by(|left, right| left.start_time.cmp(&right.start_time));
-    merged
-}
-
 async fn load_schedule_cache(
     state: &AppState,
     user_key: String,
-    week_number: i64,
     weekday: i64,
 ) -> Result<Vec<ScheduleLesson>, String> {
     db_run(state.db_path.clone(), move |conn| {
         let json: String = conn
             .query_row(
-                "SELECT lessons_json FROM schedule_cache WHERE user_key = ?1 AND week_number = ?2 AND weekday = ?3",
-                params![user_key, week_number, weekday],
+                "SELECT lessons_json FROM schedule_cache WHERE user_key = ?1 AND weekday = ?2",
+                params![user_key, weekday],
                 |row| row.get(0),
             )
             .unwrap_or_else(|_| "[]".to_string());
@@ -1035,11 +993,10 @@ async fn load_schedule_cache(
 async fn delete_schedule_lesson_impl(
     state: &AppState,
     user_key: String,
-    week_number: i64,
     weekday: i64,
     lesson: ScheduleLesson,
 ) -> Result<bool, String> {
-    let mut lessons = load_schedule_cache(state, user_key.clone(), week_number, weekday).await?;
+    let mut lessons = load_schedule_cache(state, user_key.clone(), weekday).await?;
     let original_len = lessons.len();
     let mut removed = false;
     lessons.retain(|item| {
@@ -1060,7 +1017,7 @@ async fn delete_schedule_lesson_impl(
     if !removed && original_len == lessons.len() {
         return Ok(false);
     }
-    save_schedule_cache(state, user_key, week_number, weekday, lessons).await?;
+    save_schedule_cache(state, user_key, weekday, lessons).await?;
     Ok(true)
 }
 
@@ -1111,81 +1068,6 @@ async fn upsert_material_link(
         Ok(())
     })
     .await
-}
-
-async fn delete_material_link(
-    state: &AppState,
-    user_key: String,
-    hash: String,
-) -> Result<Option<String>, String> {
-    db_run(state.db_path.clone(), move |conn| {
-        conn.execute(
-            "DELETE FROM user_materials WHERE user_key = ?1 AND material_hash = ?2",
-            params![user_key, hash.clone()],
-        )
-        .map_err(|err| err.to_string())?;
-        let remaining: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM user_materials WHERE material_hash = ?1",
-                [hash.clone()],
-                |row| row.get(0),
-            )
-            .map_err(|err| err.to_string())?;
-        if remaining > 0 {
-            return Ok(None);
-        }
-        let stored_path = conn
-            .query_row(
-                "SELECT stored_path FROM material_store WHERE hash = ?1",
-                [hash.clone()],
-                |row| row.get::<_, String>(0),
-            )
-            .ok();
-        conn.execute("DELETE FROM material_store WHERE hash = ?1", [hash])
-            .map_err(|err| err.to_string())?;
-        Ok(stored_path)
-    })
-    .await
-}
-
-async fn clone_week_range(
-    state: &AppState,
-    user_key: String,
-    source_week_number: i64,
-    target_start_week: i64,
-    target_end_week: i64,
-) -> Result<usize, String> {
-    let query_user_key = user_key.clone();
-    let snapshot = db_run(state.db_path.clone(), move |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT weekday, lessons_json
-                 FROM schedule_cache
-                 WHERE user_key = ?1 AND week_number = ?2",
-            )
-            .map_err(|err| err.to_string())?;
-        let rows = stmt
-            .query_map(params![query_user_key, source_week_number], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|err| err.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|err| err.to_string())
-    })
-    .await?;
-    let mut count = 0usize;
-    for week in target_start_week..=target_end_week {
-        if week == source_week_number {
-            continue;
-        }
-        for (weekday, json) in &snapshot {
-            let lessons =
-                serde_json::from_str::<Vec<ScheduleLesson>>(json).map_err(|err| err.to_string())?;
-            save_schedule_cache(state, user_key.clone(), week, *weekday, lessons)
-                .await?;
-            count += 1;
-        }
-    }
-    Ok(count)
 }
 
 async fn post_supabase<T: Serialize, R: for<'de> Deserialize<'de>>(
@@ -1334,7 +1216,6 @@ async fn bootstrap_app(state: State<'_, AppState>) -> Result<BootstrapPayload, S
             .collect(),
         subjects: SUBJECTS.iter().map(|value| value.to_string()).collect(),
         default_weekday: Local::now().weekday().number_from_monday() as i64,
-        default_week_number: Local::now().iso_week().week() as i64,
         auth_session,
         settings,
         textbooks,
@@ -1496,9 +1377,6 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
         return Err("Добавь расписание, файл или уточнения по предметам.".to_string());
     }
 
-    let existing_lessons =
-        load_schedule_cache(&state, user_key.clone(), payload.week_number, payload.weekday).await?;
-
     let mut lessons = if !file_paths.is_empty() {
         let value = run_python_agent(
             &state,
@@ -1530,21 +1408,13 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
             serde_json::from_value(value).map_err(|err| err.to_string())?;
         parsed.lessons
     } else {
-        load_schedule_cache(&state, user_key.clone(), payload.week_number, payload.weekday).await?
+        load_schedule_cache(&state, user_key.clone(), payload.weekday).await?
     };
 
-    lessons = merge_schedule_entries(existing_lessons, lessons);
     lessons = apply_subject_profiles(lessons, &profiles);
     lessons = apply_subject_overrides(lessons, &overrides);
     lessons = apply_time_overrides(lessons, &time_overrides);
-    save_schedule_cache(
-        &state,
-        user_key.clone(),
-        payload.week_number,
-        payload.weekday,
-        lessons.clone(),
-    )
-    .await?;
+    save_schedule_cache(&state, user_key.clone(), payload.weekday, lessons.clone()).await?;
     remember_subject_profiles(&state, user_key.clone(), &lessons).await?;
     remember_subject_profiles(&state, user_key, &overrides).await?;
     notify_status("Nexara".to_string(), "Расписание обновлено".to_string(), state.clone()).await?;
@@ -1566,14 +1436,7 @@ async fn delete_schedule_lesson(
     let session = load_auth_session(&state).await?;
     let user_key = local_user_key(session.as_ref());
     let removed =
-        delete_schedule_lesson_impl(
-            &state,
-            user_key,
-            payload.week_number,
-            payload.weekday,
-            payload.lesson,
-        )
-        .await?;
+        delete_schedule_lesson_impl(&state, user_key, payload.weekday, payload.lesson).await?;
     Ok(OperationResult {
         ok: removed,
         message: if removed {
@@ -1628,65 +1491,19 @@ async fn upload_textbook(
 }
 
 #[tauri::command]
-async fn delete_textbook(
-    payload: DeleteTextbookPayload,
-    state: State<'_, AppState>,
-) -> Result<OperationResult, String> {
-    let session = load_auth_session(&state).await?;
-    let user_key = local_user_key(session.as_ref());
-    if let Some(path) = delete_material_link(&state, user_key.clone(), payload.hash).await? {
-        let _ = tokio::fs::remove_file(path).await;
-    }
-    rebuild_rag_index(&state, user_key).await?;
-    Ok(OperationResult {
-        ok: true,
-        message: "Учебник удалён.".to_string(),
-    })
-}
-
-#[tauri::command]
 async fn list_textbooks_command(state: State<'_, AppState>) -> Result<Vec<MaterialRecord>, String> {
     let session = load_auth_session(&state).await?;
     list_materials(&state, local_user_key(session.as_ref())).await
 }
 
 #[tauri::command]
-async fn clone_schedule_quarter(
-    payload: CloneQuarterPayload,
-    state: State<'_, AppState>,
-) -> Result<OperationResult, String> {
-    let session = load_auth_session(&state).await?;
-    let user_key = local_user_key(session.as_ref());
-    if payload.source_week_number < 1
-        || payload.target_start_week < 1
-        || payload.target_end_week > 52
-        || payload.target_start_week > payload.target_end_week
-    {
-        return Err("Некорректный диапазон недель.".to_string());
-    }
-    let copied = clone_week_range(
-        &state,
-        user_key,
-        payload.source_week_number,
-        payload.target_start_week,
-        payload.target_end_week,
-    )
-    .await?;
-    Ok(OperationResult {
-        ok: true,
-        message: format!("Расписание расклонировано: {copied} записей."),
-    })
-}
-
-#[tauri::command]
 async fn get_schedule_for_weekday(
-    week_number: i64,
     weekday: i64,
     state: State<'_, AppState>,
 ) -> Result<Vec<ScheduleLesson>, String> {
     let session = load_auth_session(&state).await?;
     let user_key = local_user_key(session.as_ref());
-    load_schedule_cache(&state, user_key, week_number, weekday).await
+    load_schedule_cache(&state, user_key, weekday).await
 }
 
 #[tauri::command]
@@ -1708,13 +1525,12 @@ async fn ask_ai(question: String, state: State<'_, AppState>) -> Result<ChatResp
 
 #[tauri::command]
 async fn generate_study_plan(
-    week_number: i64,
     weekday: i64,
     state: State<'_, AppState>,
 ) -> Result<PlanResponse, String> {
     let session = load_auth_session(&state).await?;
     let user_key = local_user_key(session.as_ref());
-    let lessons = load_schedule_cache(&state, user_key, week_number, weekday).await?;
+    let lessons = load_schedule_cache(&state, user_key, weekday).await?;
     let value = run_python_agent(
         &state,
         "generate_plan",
@@ -1770,9 +1586,7 @@ fn main() {
             save_schedule,
             delete_schedule_lesson,
             upload_textbook,
-            delete_textbook,
             list_textbooks_command,
-            clone_schedule_quarter,
             get_schedule_for_weekday,
             ask_ai,
             generate_study_plan,
