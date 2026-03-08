@@ -1494,5 +1494,354 @@ def normalize_lessons(lessons: List[Dict[str, Any]], subjects: List[str]) -> Lis
     return normalized
 
 
+RU_LESSON = "\u0443\u0440\u043e\u043a"
+RU_BREAK = "\u043f\u0435\u0440\u0435\u043c\u0435\u043d"
+RU_HOMEWORK = "\u0434\u043e\u043c\u0430\u0448\u043d\u0435\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u0435"
+RU_EXTRACURRICULAR = "\u0432\u043d\u0435\u0443\u0440\u043e\u0447\u043d\u0430\u044f \u0434\u0435\u044f\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c"
+
+
+def count_lesson_headers(text: str) -> int:
+    normalized = normalize_ocr_text(text)
+    return len(re.findall(rf"\b\d{{1,2}}\s*(?:{RU_LESSON}|lesson)\b", normalized, re.I))
+
+
+def is_lesson_header(line: str) -> bool:
+    normalized = normalize_ocr_text(line)
+    return bool(
+        re.search(rf"\b\d{{1,2}}\s*(?:{RU_LESSON}|lesson)\b", normalized, re.I)
+        or re.search(r"\d{1,2}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}", normalized)
+    )
+
+
+def is_break_line(line: str) -> bool:
+    lowered = normalize_ocr_text(line).lower()
+    return RU_BREAK in lowered or re.search(r"\bbreak\b", lowered, re.I) is not None
+
+
+def is_ignored_schedule_line(line: str) -> bool:
+    lowered = normalize_ocr_text(line).lower()
+    ignored_fragments = [
+        RU_HOMEWORK,
+        RU_EXTRACURRICULAR,
+        "homework",
+        "gosuslugi",
+        "http://",
+        "https://",
+        "\u043e\u0446\u0435\u043d\u043a\u0438",
+        "\u0437\u0430\u0434\u0430\u043d\u0438\u044f",
+        "\u0448\u043a\u043e\u043b\u0430",
+        "\u043f\u0440\u043e\u0444\u0438\u043b\u044c",
+        "\u0443\u0447\u0435\u043d\u0438\u043a",
+        "\u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0442\u0430",
+    ]
+    if any(fragment in lowered for fragment in ignored_fragments):
+        return True
+    if re.fullmatch(r"[\u043f\u0432\u0441\u0447]\w{0,2}", lowered):
+        return True
+    if re.fullmatch(r"\d{1,2}", lowered):
+        return True
+    return False
+
+
+def looks_like_teacher_name(value: str) -> bool:
+    cleaned = normalize_ocr_text(value).strip()
+    if len(cleaned) < 8:
+        return False
+    if re.search(
+        rf"\b({RU_HOMEWORK}|{RU_EXTRACURRICULAR}|\u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d\u0430\u044f|\u043f\u0435\u0440\u0435\u043c\u0435\u043d\u0430)\b",
+        cleaned,
+        re.I,
+    ):
+        return False
+    return bool(
+        re.search(r"[\u0410-\u042f\u0401][\u0430-\u044f\u0451-]+(?:\s+[\u0410-\u042f\u0401][\u0430-\u044f\u0451-]+){1,2}", cleaned)
+        or re.search(r"[\u0410-\u042f\u0401][\u0430-\u044f\u0451-]+\s+[\u0410-\u042f\u0401]\.[\u0410-\u042f\u0401]\.", cleaned)
+    )
+
+
+def latin_noise_ratio(text: str) -> float:
+    letters = [char for char in text if char.isalpha()]
+    if not letters:
+        return 1.0
+    latin = sum(1 for char in letters if "a" <= char.lower() <= "z")
+    return latin / len(letters)
+
+
+def text_quality_score(text: str) -> float:
+    normalized = normalize_ocr_text(text)
+    score = count_lesson_headers(normalized) * 5.0
+    score += min(len(re.findall(r"[\u0400-\u04ff]{3,}", normalized)), 20) * 0.4
+    score -= latin_noise_ratio(normalized) * 6.0
+    if normalized.count("\n") >= 6:
+        score += 1.5
+    return score
+
+
+def lesson_quality_score(lessons: List[Dict[str, Any]]) -> float:
+    score = float(len(lessons)) * 20.0
+    for lesson in lessons:
+        subject = normalize_ocr_text(str(lesson.get("subject", "")))
+        notes = normalize_ocr_text(str(lesson.get("notes", "")))
+        if 2 <= len(subject) <= 48:
+            score += 3.0
+        if latin_noise_ratio(subject) > 0.35:
+            score -= 6.0
+        if re.search(r"\d{1,2}[:.]\d{2}", subject):
+            score -= 8.0
+        if notes:
+            score -= min(len(notes), 120) * 0.02
+    return score
+
+
+def subject_match_key(text: str) -> str:
+    cleaned = normalize_ocr_text(text).lower()
+    cleaned = re.sub(rf"\b\d+\s*{RU_LESSON}\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", cleaned)
+    cleaned = re.sub(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^(?:\u0433\u0440\u0443\u043f\u043f\u0430\s+)?", "", cleaned, flags=re.I)
+    cleaned = cleaned.replace("\u2116", " ")
+    translit = str.maketrans({
+        "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g", "\u0434": "d", "\u0435": "e", "\u0451": "e",
+        "\u0436": "zh", "\u0437": "z", "\u0438": "i", "\u0439": "i", "\u043a": "k", "\u043b": "l", "\u043c": "m",
+        "\u043d": "n", "\u043e": "o", "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t", "\u0443": "u",
+        "\u0444": "f", "\u0445": "h", "\u0446": "c", "\u0447": "ch", "\u0448": "sh", "\u0449": "sh",
+        "\u044b": "y", "\u044d": "e", "\u044e": "u", "\u044f": "ya", "\u044c": "", "\u044a": "",
+    })
+    key = cleaned.translate(translit)
+    key = key.replace("6", "b").replace("3", "z").replace("0", "o").replace("9", "ya")
+    return re.sub(r"[^a-z]+", "", key)
+
+
+def best_subject_match(text: str, subjects: List[str]) -> str:
+    if not subjects:
+        return ""
+    normalized = subject_match_key(text)
+    if not normalized:
+        return ""
+    best_subject = ""
+    best_score = 0.0
+    for subject in subjects:
+        candidate = subject_match_key(subject)
+        if not candidate:
+            continue
+        score = SequenceMatcher(None, normalized, candidate).ratio()
+        if score > best_score:
+            best_score = score
+            best_subject = subject
+    return best_subject if best_score >= 0.86 else ""
+
+
+def clean_subject_candidate(text: str) -> str:
+    cleaned = normalize_ocr_text(text)
+    cleaned = re.sub(rf"\b\d+\s*{RU_LESSON}\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", cleaned)
+    cleaned = re.sub(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(rf"\b(?:{RU_EXTRACURRICULAR}|\u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0442\u0430|{RU_HOMEWORK})\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^(?:\u0433\u0440\u0443\u043f\u043f\u0430\s+)", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-[]")
+    if re.search(r"\b(?:\u0440\u0430\u0437\u0433\u043e\u0432\u043e\u0440\u044b \u043e \u0432\u0430\u0436\u043d\u043e\u043c|\u043c\u043e\u0438 \u0433\u043e\u0440\u0438\u0437\u043e\u043d\u0442\u044b)\b", cleaned, re.I):
+        cleaned = re.sub(r"\b\d{1,2}[A-Za-z\u0410-\u042f\u0430-\u044f]?\b$", "", cleaned).strip(" ,.-")
+    return cleaned
+
+
+def extract_subject_candidate(block: List[str]) -> str:
+    candidates = block[1:] if len(block) > 1 else block
+    for line in candidates:
+        cleaned = clean_subject_candidate(line)
+        if not cleaned or is_lesson_header(cleaned) or is_break_line(cleaned) or is_ignored_schedule_line(cleaned):
+            continue
+        if looks_like_teacher_name(cleaned):
+            continue
+        if 2 <= len(cleaned) <= 64:
+            return cleaned
+    return ""
+
+
+def normalize_subject_label(text: str, subjects: List[str]) -> str:
+    cleaned = clean_subject_candidate(text)
+    matched = best_subject_match(cleaned, subjects)
+    return matched or cleaned
+
+
+def clean_lesson_notes(value: str, subject: str) -> str:
+    cleaned = normalize_ocr_text(value)
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    if is_break_line(cleaned) or is_ignored_schedule_line(cleaned):
+        return ""
+    if RU_EXTRACURRICULAR in lowered:
+        return ""
+    if re.search(rf"\b\d{{1,2}}\s*{RU_LESSON}\b", lowered):
+        return ""
+    if re.search(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", lowered):
+        return ""
+    if subject and subject.lower() in lowered and len(cleaned) <= len(subject) + 18:
+        return ""
+    if latin_noise_ratio(cleaned) > 0.35:
+        return ""
+    return cleaned.strip()
+
+
+def build_schedule_blocks(text: str) -> List[List[str]]:
+    lines = [normalize_schedule_line(line) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    blocks: List[List[str]] = []
+    current: List[str] = []
+    for line in lines:
+        if is_break_line(line):
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        if is_lesson_header(line):
+            if current:
+                blocks.append(current)
+            current = [line]
+            continue
+        if current:
+            current.append(line)
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def parse_diary_schedule_text(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
+    blocks = build_schedule_blocks(text)
+    lessons: List[Dict[str, Any]] = []
+    fallback_start = extract_first_time(text) or "08:30"
+    next_start = fallback_start
+    for index, block in enumerate(blocks):
+        header = next((line for line in block if is_lesson_header(line)), "")
+        subject_line = extract_subject_candidate(block)
+        if not subject_line:
+            continue
+        subject = normalize_subject_label(subject_line, subjects)
+        if not subject:
+            continue
+        range_match = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–—]\s*(\d{1,2}[:.]\d{2})", header)
+        if range_match:
+            start_time = normalize_time(range_match.group(1))
+            end_time = normalize_time(range_match.group(2))
+        else:
+            start_time = next_start if index else fallback_start
+            end_time = add_minutes(start_time, 45)
+        next_start = add_minutes(end_time, 10)
+        room_match = re.search(r"(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*([0-9A-Za-z\u0400-\u04ff/-]+)", header, re.I)
+        teacher = ""
+        note_lines: List[str] = []
+        for line in block[1:]:
+            normalized = normalize_schedule_line(line)
+            if not normalized or normalized == subject_line:
+                continue
+            if is_ignored_schedule_line(normalized) or is_break_line(normalized):
+                continue
+            if looks_like_teacher_name(normalized) and not teacher:
+                teacher = normalized
+                continue
+            cleaned_note = clean_lesson_notes(normalized, subject)
+            if cleaned_note:
+                note_lines.append(cleaned_note)
+        lessons.append({
+            "subject": subject,
+            "teacher": teacher,
+            "room": room_match.group(1) if room_match else "",
+            "start_time": start_time,
+            "end_time": end_time,
+            "notes": " ".join(dict.fromkeys(note_lines)),
+            "materials": [],
+        })
+    return lessons
+
+
+def vision_schedule_text(path: Path) -> str:
+    if not GROQ_API_KEY.strip():
+        return ""
+    try:
+        mime, encoded = prepare_image_for_vision(path)
+    except Exception:
+        return ""
+    prompt = (
+        "This is a Russian school diary screenshot with lesson cards. "
+        "Transcribe only lesson headers, subjects, rooms and short note lines. "
+        "Ignore avatars, navigation, UI chrome and decorative labels. "
+        "Keep one lesson per block, preserve order, preserve Russian text, and keep line breaks. "
+        "Return plain text only."
+    )
+    messages = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
+        ],
+    }]
+    return normalize_ocr_text(call_groq(VISION_MODEL, messages, 0.0) or "")
+
+
+def extract_schedule_text_from_image(path: Path) -> str:
+    local_text = normalize_ocr_text(local_ocr_text(path))
+    vision_text = vision_schedule_text(path)
+    if text_quality_score(vision_text) > text_quality_score(local_text):
+        return vision_text
+    return local_text
+
+
+def parse_schedule_cards_from_image(path: Path, subjects: List[str]) -> List[Dict[str, Any]]:
+    local_text = normalize_ocr_text(local_ocr_text(path))
+    local_lessons = normalize_lessons(parse_diary_schedule_text(local_text, subjects), subjects)
+    best_lessons = local_lessons
+    best_score = lesson_quality_score(local_lessons)
+
+    chosen_text = extract_schedule_text_from_image(path)
+    if chosen_text and chosen_text != local_text:
+        chosen_lessons = normalize_lessons(parse_diary_schedule_text(chosen_text, subjects), subjects)
+        chosen_score = lesson_quality_score(chosen_lessons)
+        if chosen_score > best_score:
+            best_lessons = chosen_lessons
+            best_score = chosen_score
+
+    if len(best_lessons) >= 2:
+        return best_lessons
+    return []
+
+
+def fallback_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
+    lessons = normalize_lessons(parse_diary_schedule_text(text, subjects), subjects)
+    if lessons:
+        return lessons
+    raise ValueError("Could not parse schedule")
+
+
+def coarse_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
+    return normalize_lessons(parse_diary_schedule_text(text, subjects), subjects)
+
+
+def normalize_lessons(lessons: List[Dict[str, Any]], subjects: List[str]) -> List[Dict[str, Any]]:
+    normalized = []
+    next_start = "08:30"
+    for index, lesson in enumerate(lessons, start=1):
+        subject = normalize_subject_label(str(lesson.get("subject", "")).strip(), subjects)
+        if not subject:
+            subject = f"\u0423\u0440\u043e\u043a {index}"
+        start_time = normalize_time(str(lesson.get("start_time", next_start)))
+        end_time = normalize_time(str(lesson.get("end_time", add_minutes(start_time, 45))))
+        teacher = normalize_ocr_text(str(lesson.get("teacher", "")).strip())
+        if not looks_like_teacher_name(teacher):
+            teacher = ""
+        room = normalize_ocr_text(str(lesson.get("room", "")).strip())
+        notes = clean_lesson_notes(str(lesson.get("notes", "")).strip(), subject)
+        normalized.append({
+            "subject": subject,
+            "teacher": teacher,
+            "room": room,
+            "start_time": start_time,
+            "end_time": end_time,
+            "notes": notes,
+            "materials": [normalize_ocr_text(str(item).strip()) for item in lesson.get("materials", []) if str(item).strip()],
+        })
+        next_start = add_minutes(end_time, 10)
+    return normalized
+
+
 if __name__ == "__main__":
     main()
