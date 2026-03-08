@@ -514,7 +514,30 @@ def normalize_ocr_text(text: str) -> str:
     cleaned = re.sub(r"(?<=\d)[.](?=\d{2}\b)", ":", cleaned)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip()
+    return repair_mixed_script_text(cleaned.strip())
+
+
+def repair_mixed_script_text(text: str) -> str:
+    if not text:
+        return ""
+    table = str.maketrans({
+        "A": "А", "a": "а",
+        "B": "В", "E": "Е", "e": "е",
+        "K": "К", "k": "к",
+        "M": "М", "H": "Н",
+        "O": "О", "o": "о",
+        "P": "Р", "p": "р",
+        "C": "С", "c": "с",
+        "T": "Т", "X": "Х", "x": "х",
+        "Y": "У", "y": "у",
+        "N": "№",
+        "b": "ь",
+    })
+    text = text.translate(table)
+    text = re.sub(r"(?<=[А-Яа-яA-Za-z])3(?=[А-Яа-яA-Za-z])", "з", text)
+    text = re.sub(r"(?<=[А-Яа-яA-Za-z])6(?=[А-Яа-яA-Za-z])", "б", text)
+    text = re.sub(r"(?<=[А-Яа-яA-Za-z])0(?=[А-Яа-яA-Za-z])", "о", text)
+    return text
 
 
 def normalize_schedule_line(line: str) -> str:
@@ -531,11 +554,11 @@ def is_lesson_header(line: str) -> bool:
 
 
 def is_break_line(line: str) -> bool:
-    return bool(re.search(r"\b(перемена|break)\b", line, re.I))
+    return bool(re.search(r"\b(перемена|break)\b", repair_mixed_script_text(line), re.I))
 
 
 def is_ignored_schedule_line(line: str) -> bool:
-    lowered = line.lower()
+    lowered = repair_mixed_script_text(line).lower()
     ignored_fragments = [
         "домашнее задание",
         "homework",
@@ -837,6 +860,433 @@ def extract_json(raw: str) -> str:
     start = raw.find("{")
     end = raw.rfind("}")
     return raw[start:end + 1] if start >= 0 and end >= 0 else raw
+
+
+def repair_mixed_script_text(text: str) -> str:
+    if not text:
+        return ""
+    table = str.maketrans({
+        "A": "А", "a": "а",
+        "B": "В", "E": "Е", "e": "е",
+        "K": "К", "k": "к",
+        "M": "М", "H": "Н",
+        "O": "О", "o": "о",
+        "P": "Р", "p": "р",
+        "C": "С", "c": "с",
+        "T": "Т", "X": "Х", "x": "х",
+        "Y": "У", "y": "у",
+        "N": "№",
+        "b": "ь",
+    })
+    text = text.translate(table)
+    text = re.sub(r"(?<=[А-Яа-яA-Za-z])3(?=[А-Яа-яA-Za-z])", "з", text)
+    text = re.sub(r"(?<=[А-Яа-яA-Za-z])6(?=[А-Яа-яA-Za-z])", "б", text)
+    text = re.sub(r"(?<=[А-Яа-яA-Za-z])0(?=[А-Яа-яA-Za-z])", "о", text)
+    return text
+
+
+_original_normalize_ocr_text = normalize_ocr_text
+
+
+def normalize_ocr_text(text: str) -> str:
+    return repair_mixed_script_text(_original_normalize_ocr_text(text))
+
+
+def is_break_line(line: str) -> bool:
+    return bool(re.search(r"\b(перемена|break)\b", repair_mixed_script_text(line), re.I))
+
+
+def is_ignored_schedule_line(line: str) -> bool:
+    lowered = repair_mixed_script_text(line).lower()
+    ignored_fragments = [
+        "домашнее задание",
+        "homework",
+        "gosuslugi",
+        "http://",
+        "https://",
+        "оценки",
+        "задания",
+        "школа",
+        "профиль",
+        "ученик",
+    ]
+    if any(fragment in lowered for fragment in ignored_fragments):
+        return True
+    if re.fullmatch(r"[пвсч]\w{0,2}", lowered):
+        return True
+    if re.fullmatch(r"\d{1,2}", lowered):
+        return True
+    return False
+
+
+def extract_subject_candidate(block: List[str]) -> str:
+    for line in block:
+        cleaned = repair_mixed_script_text(normalize_schedule_line(line))
+        if not cleaned or is_lesson_header(cleaned) or is_break_line(cleaned) or is_ignored_schedule_line(cleaned):
+            continue
+        cleaned = re.sub(r"(?:каб(?:инет)?|аудитория|room)\.?\s*[0-9A-Za-zА-Яа-я/№-]+", "", cleaned, flags=re.I).strip(" ,.-[]")
+        if looks_like_teacher_name(cleaned):
+            continue
+        if len(cleaned) >= 3:
+            return cleaned
+    return ""
+
+
+def normalize_subject_label(text: str, subjects: List[str]) -> str:
+    lowered = repair_mixed_script_text(normalize_ocr_text(text)).lower()
+    alias_map = [
+        (["иностранный (английский) язык", "иностранный английский язык", "английский язык"], "Английский язык"),
+        (["основы безопасности и защиты родины", "обзр", "обж", "осзр"], "ОБЖ"),
+        (["россия - мои горизонты", "разговоры о важном", "мои горизонты", "классный час", "внеурочная деятельность"], "Классный час"),
+        (["технология (труд)", "технология", "труд"], "Технология"),
+        (["история"], "История"),
+        (["литература"], "Литература"),
+        (["вероятность и статистика"], "Вероятность и статистика"),
+        (["физическая культура"], "Физическая культура"),
+    ]
+    for aliases, canonical in alias_map:
+        if any(alias in lowered for alias in aliases):
+            return canonical
+    exact = next((subject for subject in subjects if subject.lower() == lowered.strip()), "")
+    if exact:
+        return exact
+    matched = best_subject_match(text, subjects)
+    if matched:
+        return matched
+    cleaned = re.sub(r"\s+", " ", repair_mixed_script_text(normalize_ocr_text(text))).strip(" ,.-[]")
+    cleaned = re.sub(r"^(?:группа\s+)?", "", cleaned, flags=re.I)
+    return cleaned
+
+
+def clean_lesson_notes(value: str, subject: str) -> str:
+    cleaned = repair_mixed_script_text(normalize_ocr_text(value))
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    if is_break_line(cleaned):
+        return ""
+    if subject and subject.lower() in lowered and len(cleaned) <= len(subject) + 20:
+        return ""
+    if re.fullmatch(r"\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}", cleaned):
+        return ""
+    if re.search(r"\b\d{1,2}\s*урок\b", lowered):
+        return ""
+    latin_ratio = sum(1 for char in cleaned if "A" <= char <= "z") / max(len(cleaned), 1)
+    if latin_ratio > 0.3 and not re.search(r"[А-Яа-яЁё]{3,}", cleaned):
+        return ""
+    return cleaned
+
+
+def normalize_lessons(lessons: List[Dict[str, Any]], subjects: List[str]) -> List[Dict[str, Any]]:
+    normalized = []
+    next_start = "08:30"
+    for lesson in lessons:
+        subject_raw = str(lesson.get("subject", "")).strip()
+        subject = next((item for item in subjects if item.lower() == repair_mixed_script_text(subject_raw).lower()), None)
+        if subject is None:
+            subject = normalize_subject_label(subject_raw, subjects)
+        if not subject:
+            subject = "Классный час"
+        start_time = normalize_time(str(lesson.get("start_time", next_start)))
+        end_time = normalize_time(str(lesson.get("end_time", add_minutes(start_time, 45))))
+        teacher = repair_mixed_script_text(str(lesson.get("teacher", "")).strip())
+        if teacher.lower() in {"учитель не указан", "не указан", "не указано", "unknown", "none"}:
+            teacher = ""
+        if teacher and not looks_like_teacher_name(teacher):
+            teacher = ""
+        room = repair_mixed_script_text(str(lesson.get("room", "")).strip())
+        normalized.append({
+            "subject": subject,
+            "teacher": teacher,
+            "room": room,
+            "start_time": start_time,
+            "end_time": end_time,
+            "notes": clean_lesson_notes(str(lesson.get("notes", "")).strip(), subject),
+            "materials": [repair_mixed_script_text(str(item).strip()) for item in lesson.get("materials", []) if str(item).strip()],
+        })
+        next_start = add_minutes(end_time, 10)
+    return normalized
+
+
+def repair_mixed_script_text(text: str) -> str:
+    if not text:
+        return text
+    table = str.maketrans({
+        "A": "\u0410", "a": "\u0430",
+        "B": "\u0412",
+        "C": "\u0421", "c": "\u0441",
+        "E": "\u0415", "e": "\u0435",
+        "H": "\u041d",
+        "K": "\u041a", "k": "\u043a",
+        "M": "\u041c", "m": "\u043c",
+        "O": "\u041e", "o": "\u043e",
+        "P": "\u0420", "p": "\u0440",
+        "T": "\u0422",
+        "X": "\u0425", "x": "\u0445",
+        "Y": "\u0423", "y": "\u0443",
+    })
+    text = text.translate(table)
+    text = re.sub(r"(?<=[A-Za-z\u0400-\u04ff])3(?=[A-Za-z\u0400-\u04ff])", "\u0437", text)
+    text = re.sub(r"(?<=[A-Za-z\u0400-\u04ff])6(?=[A-Za-z\u0400-\u04ff])", "\u0431", text)
+    text = re.sub(r"(?<=[A-Za-z\u0400-\u04ff])0(?=[A-Za-z\u0400-\u04ff])", "\u043e", text)
+    text = re.sub(r"\bN\s*(?=\d)", "\u2116 ", text)
+    text = re.sub(r"\bNo\s*(?=\d)", "\u2116 ", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+_latest_normalize_ocr_text = normalize_ocr_text
+
+
+def normalize_ocr_text(text: str) -> str:
+    return repair_mixed_script_text(_latest_normalize_ocr_text(text))
+
+
+def is_break_line(line: str) -> bool:
+    return bool(re.search(r"\b(\u043f\u0435\u0440\u0435\u043c\u0435\u043d\u0430|break)\b", repair_mixed_script_text(line), re.I))
+
+
+def is_ignored_schedule_line(line: str) -> bool:
+    lowered = repair_mixed_script_text(line).lower()
+    ignored_fragments = [
+        "\u0434\u043e\u043c\u0430\u0448\u043d\u0435\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u0435",
+        "homework",
+        "gosuslugi",
+        "http://",
+        "https://",
+        "\u043e\u0446\u0435\u043d\u043a\u0438",
+        "\u0437\u0430\u0434\u0430\u043d\u0438\u044f",
+        "\u0448\u043a\u043e\u043b\u0430",
+        "\u043f\u0440\u043e\u0444\u0438\u043b\u044c",
+        "\u0443\u0447\u0435\u043d\u0438\u043a",
+        "\u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0442\u0430",
+    ]
+    if any(fragment in lowered for fragment in ignored_fragments):
+        return True
+    if re.fullmatch(r"[\u043f\u0432\u0441\u0447]\w{0,2}", lowered):
+        return True
+    if re.fullmatch(r"\d{1,2}", lowered):
+        return True
+    return False
+
+
+def extract_subject_candidate(block: List[str]) -> str:
+    for line in block:
+        cleaned = repair_mixed_script_text(normalize_schedule_line(line))
+        if not cleaned or is_lesson_header(cleaned) or is_break_line(cleaned) or is_ignored_schedule_line(cleaned):
+            continue
+        cleaned = re.sub(
+            r"(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[0-9A-Za-z\u0400-\u04ff/-]+",
+            "",
+            cleaned,
+            flags=re.I,
+        )
+        cleaned = re.sub(r"\b\d+\s*\u0443\u0440\u043e\u043a\b", "", cleaned, flags=re.I)
+        cleaned = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-[]")
+        if looks_like_teacher_name(cleaned):
+            continue
+        if len(cleaned) >= 3:
+            return cleaned
+    return ""
+
+
+def normalize_subject_label(text: str, subjects: List[str]) -> str:
+    cleaned = repair_mixed_script_text(normalize_ocr_text(text))
+    lowered = cleaned.lower()
+    lowered = re.sub(r"\b\d+\s*\u0443\u0440\u043e\u043a\b", "", lowered, flags=re.I)
+    lowered = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", lowered)
+    lowered = re.sub(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", lowered, flags=re.I)
+    lowered = re.sub(r"^(?:\u0433\u0440\u0443\u043f\u043f\u0430\s+)?", "", lowered, flags=re.I)
+    lowered = re.sub(r"\s+", " ", lowered).strip(" ,.-[]")
+
+    fuzzy_aliases = [
+        ((("\u0432\u0430\u0436\u043d" in lowered) or ("\u0433\u043e\u0440\u0438\u0437\u043e\u043d\u0442" in lowered) or ("\u0440\u0430\u0437\u0433\u043e\u0432" in lowered)), "\u041a\u043b\u0430\u0441\u0441\u043d\u044b\u0439 \u0447\u0430\u0441"),
+        ((("\u0430\u043d\u0433\u043b" in lowered) or ("\u0438\u043d\u043e\u0441\u0442\u0440" in lowered)), "\u0410\u043d\u0433\u043b\u0438\u0439\u0441\u043a\u0438\u0439 \u044f\u0437\u044b\u043a"),
+        ((("\u0442\u0440\u0443\u0434" in lowered) or ("\u0442\u0435\u0445\u043d\u043e\u043b" in lowered)), "\u0422\u0435\u0445\u043d\u043e\u043b\u043e\u0433\u0438\u044f"),
+        (("\u0438\u0441\u0442\u043e\u0440" in lowered), "\u0418\u0441\u0442\u043e\u0440\u0438\u044f"),
+        (("\u043b\u0438\u0442\u0435\u0440" in lowered), "\u041b\u0438\u0442\u0435\u0440\u0430\u0442\u0443\u0440\u0430"),
+        (("\u0438\u043d\u0444\u043e\u0440\u043c" in lowered), "\u0418\u043d\u0444\u043e\u0440\u043c\u0430\u0442\u0438\u043a\u0430"),
+        (("\u0433\u0435\u043e\u0433\u0440" in lowered), "\u0413\u0435\u043e\u0433\u0440\u0430\u0444\u0438\u044f"),
+        (("\u0430\u043b\u0433\u0435\u0431" in lowered), "\u0410\u043b\u0433\u0435\u0431\u0440\u0430"),
+        (("\u0433\u0435\u043e\u043c\u0435\u0442" in lowered), "\u0413\u0435\u043e\u043c\u0435\u0442\u0440\u0438\u044f"),
+        (("\u0440\u0443\u0441\u0441\u043a" in lowered), "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 \u044f\u0437\u044b\u043a"),
+        (("\u0444\u0438\u0437\u0438\u043a" in lowered), "\u0424\u0438\u0437\u0438\u043a\u0430"),
+        (("\u0445\u0438\u043c" in lowered), "\u0425\u0438\u043c\u0438\u044f"),
+        ((("\u043e\u0431\u0436" in lowered) or ("\u043e\u0431\u0437\u0440" in lowered) or ("\u0431\u0435\u0437\u043e\u043f\u0430\u0441" in lowered) or ("\u0437\u0430\u0449\u0438\u0442\u044b \u0440\u043e\u0434\u0438\u043d" in lowered)), "\u041e\u0411\u0416"),
+        ((("\u0432\u0435\u0440\u043e\u044f\u0442" in lowered) or ("\u0441\u0442\u0430\u0442\u0438\u0441\u0442" in lowered)), "\u0412\u0435\u0440\u043e\u044f\u0442\u043d\u043e\u0441\u0442\u044c \u0438 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430"),
+        ((("\u0444\u0438\u0437\u0438\u0447\u0435\u0441\u043a" in lowered) or ("\u0444\u0438\u0437-\u0440\u0430" in lowered)), "\u0424\u0438\u0437\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u043a\u0443\u043b\u044c\u0442\u0443\u0440\u0430"),
+    ]
+    for matched, canonical in fuzzy_aliases:
+        if matched:
+            return canonical
+
+    exact = next((subject for subject in subjects if repair_mixed_script_text(subject).lower() == lowered), "")
+    if exact:
+        return exact
+
+    matched = best_subject_match(cleaned, subjects)
+    if matched:
+        return matched
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-[]")
+    cleaned = re.sub(r"^(?:\u0433\u0440\u0443\u043f\u043f\u0430\s+)?", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b\d+\s*\u0443\u0440\u043e\u043a\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", cleaned)
+    cleaned = re.sub(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-[]")
+    return cleaned
+
+
+def clean_lesson_notes(value: str, subject: str) -> str:
+    cleaned = repair_mixed_script_text(normalize_ocr_text(value))
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    if is_break_line(cleaned):
+        return ""
+    if subject and subject.lower() in lowered and len(cleaned) <= len(subject) + 20:
+        return ""
+    if re.fullmatch(r"\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}", cleaned):
+        return ""
+    if re.search(r"\b\d{1,2}\s*\u0443\u0440\u043e\u043a\b", lowered):
+        return ""
+    if re.search(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", lowered):
+        return ""
+    latin_ratio = sum(1 for char in cleaned if "A" <= char <= "z") / max(len(cleaned), 1)
+    if latin_ratio > 0.25 and not re.search(r"[\u0400-\u04ff]{3,}", cleaned):
+        return ""
+    if len(cleaned) > 90 and re.search(r"\b\d{1,2}\s*\u0443\u0440\u043e\u043a\b", lowered):
+        return ""
+    return cleaned
+
+
+def normalize_lessons(lessons: List[Dict[str, Any]], subjects: List[str]) -> List[Dict[str, Any]]:
+    def strict_teacher_name(value: str) -> bool:
+        if not value:
+            return False
+        cleaned = repair_mixed_script_text(value)
+        lowered = cleaned.lower()
+        if any(fragment in lowered for fragment in [
+            "\u0443\u0447\u0438\u0442\u0435\u043b\u044c \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d",
+            "\u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d",
+            "\u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u043e",
+            "unknown",
+            "none",
+            "\u0434\u043e\u043c\u0430\u0448\u043d\u0435\u0435",
+            "\u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d",
+        ]):
+            return False
+        parts = [part for part in re.split(r"\s+", cleaned.strip()) if part]
+        if len(parts) not in {2, 3}:
+            return False
+        return all(re.fullmatch(r"[\u0400-\u04ff-]{2,}", part) for part in parts)
+
+    normalized = []
+    next_start = "08:30"
+    for lesson in lessons:
+        subject_raw = str(lesson.get("subject", "")).strip()
+        subject = next((item for item in subjects if repair_mixed_script_text(item).lower() == repair_mixed_script_text(subject_raw).lower()), None)
+        if subject is None:
+            subject = normalize_subject_label(subject_raw, subjects)
+        if not subject:
+            subject = "\u0423\u0440\u043e\u043a"
+        start_time = normalize_time(str(lesson.get("start_time", next_start)))
+        end_time = normalize_time(str(lesson.get("end_time", add_minutes(start_time, 45))))
+        teacher = repair_mixed_script_text(str(lesson.get("teacher", "")).strip())
+        if teacher and not strict_teacher_name(teacher):
+            teacher = ""
+        room = repair_mixed_script_text(str(lesson.get("room", "")).strip())
+        normalized.append({
+            "subject": subject,
+            "teacher": teacher,
+            "room": room,
+            "start_time": start_time,
+            "end_time": end_time,
+            "notes": clean_lesson_notes(str(lesson.get("notes", "")).strip(), subject),
+            "materials": [repair_mixed_script_text(str(item).strip()) for item in lesson.get("materials", []) if str(item).strip()],
+        })
+        next_start = add_minutes(end_time, 10)
+    return normalized
+
+
+def subject_match_key(text: str) -> str:
+    cleaned = repair_mixed_script_text(normalize_ocr_text(text)).lower()
+    cleaned = re.sub(r"\b\d+\s*\u0443\u0440\u043e\u043a\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", cleaned)
+    cleaned = re.sub(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^(?:\u0433\u0440\u0443\u043f\u043f\u0430\s+)?", "", cleaned, flags=re.I)
+    translit = str.maketrans({
+        "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g", "\u0434": "d", "\u0435": "e",
+        "\u0451": "e", "\u0436": "zh", "\u0437": "z", "\u0438": "i", "\u0439": "i", "\u043a": "k",
+        "\u043b": "l", "\u043c": "m", "\u043d": "n", "\u043e": "o", "\u043f": "p", "\u0440": "r",
+        "\u0441": "s", "\u0442": "t", "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "c",
+        "\u0447": "ch", "\u0448": "sh", "\u0449": "sh", "\u044b": "y", "\u044d": "e", "\u044e": "u",
+        "\u044f": "ya", "\u044c": "", "\u044a": "",
+        "w": "n", "q": "a",
+    })
+    key = cleaned.translate(translit)
+    key = key.replace("6", "b").replace("3", "z").replace("0", "o").replace("9", "ya")
+    key = re.sub(r"[^a-z]+", "", key)
+    return key
+
+
+def best_subject_match(text: str, subjects: List[str]) -> str:
+    lowered = repair_mixed_script_text(text).lower()
+    for subject in subjects:
+        if repair_mixed_script_text(subject).lower() in lowered:
+            return subject
+    normalized = subject_match_key(text)
+    best_subject = ""
+    best_score = 0.0
+    for subject in subjects:
+        candidate = subject_match_key(subject)
+        score = SequenceMatcher(None, normalized, candidate).ratio()
+        if score > best_score:
+            best_score = score
+            best_subject = subject
+    return best_subject if best_score >= 0.62 else ""
+
+
+def normalize_subject_label(text: str, subjects: List[str]) -> str:
+    cleaned = repair_mixed_script_text(normalize_ocr_text(text))
+    lowered = cleaned.lower()
+    key = subject_match_key(cleaned)
+
+    fuzzy_aliases = [
+        ((("razgov" in key) or ("gorizont" in key) or ("vazhn" in key) or ("vaznom" in key) or ("vakhnom" in key)), "\u041a\u043b\u0430\u0441\u0441\u043d\u044b\u0439 \u0447\u0430\u0441"),
+        ((("angl" in key) or ("inostr" in key) or ("strann" in key) or ("yazik" in key) or ("yabik" in key)), "\u0410\u043d\u0433\u043b\u0438\u0439\u0441\u043a\u0438\u0439 \u044f\u0437\u044b\u043a"),
+        ((("trud" in key) or ("tehn" in key) or ("tehno" in key)), "\u0422\u0435\u0445\u043d\u043e\u043b\u043e\u0433\u0438\u044f"),
+        (("istor" in key), "\u0418\u0441\u0442\u043e\u0440\u0438\u044f"),
+        (("liter" in key), "\u041b\u0438\u0442\u0435\u0440\u0430\u0442\u0443\u0440\u0430"),
+        (("inform" in key), "\u0418\u043d\u0444\u043e\u0440\u043c\u0430\u0442\u0438\u043a\u0430"),
+        (("geogr" in key), "\u0413\u0435\u043e\u0433\u0440\u0430\u0444\u0438\u044f"),
+        (("algeb" in key), "\u0410\u043b\u0433\u0435\u0431\u0440\u0430"),
+        (("geomet" in key), "\u0413\u0435\u043e\u043c\u0435\u0442\u0440\u0438\u044f"),
+        (("russk" in key), "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 \u044f\u0437\u044b\u043a"),
+        (("fizik" in key), "\u0424\u0438\u0437\u0438\u043a\u0430"),
+        (("him" in key), "\u0425\u0438\u043c\u0438\u044f"),
+        ((("obzh" in key) or ("bezopas" in key) or ("rodin" in key)), "\u041e\u0411\u0416"),
+        ((("veroyat" in key) or ("stat" in key)), "\u0412\u0435\u0440\u043e\u044f\u0442\u043d\u043e\u0441\u0442\u044c \u0438 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430"),
+        (("fizichesk" in key), "\u0424\u0438\u0437\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u043a\u0443\u043b\u044c\u0442\u0443\u0440\u0430"),
+    ]
+    for matched, canonical in fuzzy_aliases:
+        if matched:
+            return canonical
+
+    exact = next((subject for subject in subjects if subject_match_key(subject) == key), "")
+    if exact:
+        return exact
+
+    matched = best_subject_match(cleaned, subjects)
+    if matched:
+        return matched
+
+    cleaned = re.sub(r"\b\d+\s*\u0443\u0440\u043e\u043a\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", cleaned)
+    cleaned = re.sub(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-[]")
+    return cleaned
 
 
 if __name__ == "__main__":
