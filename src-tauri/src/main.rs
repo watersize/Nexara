@@ -1,6 +1,6 @@
 ﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{Datelike, Local};
@@ -17,26 +17,6 @@ use tokio::process::{Child, Command};
 const DEFAULT_SUPABASE_URL: &str = "https://qotqycihhexoflxzavqj.supabase.co";
 const DEFAULT_SUPABASE_KEY: &str = "sb_publishable_kG0Pz1veUgqLwzmOh38coA_9Q995YKF";
 const DEFAULT_GROQ_KEY: &str = "";
-const SUBJECTS: [&str; 17] = [
-    "Алгебра",
-    "Геометрия",
-    "Вероятность и статистика",
-    "Русский язык",
-    "Физика",
-    "Химия",
-    "Биология",
-    "Физическая культура",
-    "География",
-    "Информатика",
-    "История",
-    "Обществознание",
-    "Английский язык",
-    "Литература",
-    "Технология",
-    "Классный час",
-    "ОБЖ",
-];
-
 #[derive(Clone)]
 struct AppState {
     db_path: PathBuf,
@@ -819,7 +799,46 @@ async fn remember_subject_profiles(
     Ok(())
 }
 
-fn parse_subject_overrides(details_text: &str) -> Vec<ScheduleLesson> {
+async fn list_known_subjects(state: &AppState, user_key: String) -> Result<Vec<String>, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let mut subjects = BTreeSet::new();
+        let mut profile_stmt = conn
+            .prepare("SELECT subject FROM subject_profiles WHERE user_key = ?1")
+            .map_err(|err| err.to_string())?;
+        let profile_rows = profile_stmt
+            .query_map([user_key.clone()], |row| row.get::<_, String>(0))
+            .map_err(|err| err.to_string())?;
+        for row in profile_rows {
+            let subject = row.map_err(|err| err.to_string())?;
+            let trimmed = subject.trim();
+            if !trimmed.is_empty() {
+                subjects.insert(trimmed.to_string());
+            }
+        }
+
+        let mut cache_stmt = conn
+            .prepare("SELECT lessons_json FROM schedule_cache WHERE user_key = ?1")
+            .map_err(|err| err.to_string())?;
+        let cache_rows = cache_stmt
+            .query_map([user_key], |row| row.get::<_, String>(0))
+            .map_err(|err| err.to_string())?;
+        for row in cache_rows {
+            let json = row.map_err(|err| err.to_string())?;
+            let lessons: Vec<ScheduleLesson> = serde_json::from_str(&json).unwrap_or_default();
+            for lesson in lessons {
+                let trimmed = lesson.subject.trim();
+                if !trimmed.is_empty() {
+                    subjects.insert(trimmed.to_string());
+                }
+            }
+        }
+
+        Ok(subjects.into_iter().collect())
+    })
+    .await
+}
+
+fn parse_subject_overrides(details_text: &str, known_subjects: &[String]) -> Vec<ScheduleLesson> {
     let mut overrides = Vec::new();
     for raw_line in details_text.lines() {
         let line = raw_line.trim();
@@ -827,11 +846,11 @@ fn parse_subject_overrides(details_text: &str) -> Vec<ScheduleLesson> {
             continue;
         }
         let lowered_line = line.to_lowercase();
-        let subject = SUBJECTS
+        let subject = known_subjects
             .iter()
             .filter(|subject| lowered_line.contains(&subject.to_lowercase()))
             .max_by_key(|subject| subject.len())
-            .map(|value| (*value).to_string());
+            .cloned();
         let Some(subject) = subject else {
             continue;
         };
@@ -1288,8 +1307,10 @@ fn spawn_telegram_bot_if_needed(_settings: &AppSettings, _state: &AppState) -> O
 #[tauri::command]
 async fn bootstrap_app(state: State<'_, AppState>) -> Result<BootstrapPayload, String> {
     let auth_session = load_auth_session(&state).await?;
+    let user_key = local_user_key(auth_session.as_ref());
     let settings = load_settings(&state).await.unwrap_or_else(|_| default_settings());
-    let textbooks = list_materials(&state, local_user_key(auth_session.as_ref())).await?;
+    let textbooks = list_materials(&state, user_key.clone()).await?;
+    let subjects = list_known_subjects(&state, user_key).await?;
     let _ = spawn_telegram_bot_if_needed(&settings, &state);
     Ok(BootstrapPayload {
         days: (1..=7)
@@ -1298,7 +1319,7 @@ async fn bootstrap_app(state: State<'_, AppState>) -> Result<BootstrapPayload, S
                 label: weekday_label(value),
             })
             .collect(),
-        subjects: SUBJECTS.iter().map(|value| value.to_string()).collect(),
+        subjects,
         default_weekday: Local::now().weekday().number_from_monday() as i64,
         default_week_number: Local::now().iso_week().week() as i64,
         auth_session,
@@ -1456,7 +1477,8 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
     };
     let has_schedule_input = !file_paths.is_empty() || !payload.text.trim().is_empty();
     let profiles = load_subject_profiles(&state, user_key.clone()).await?;
-    let overrides = parse_subject_overrides(&payload.details_text);
+    let known_subjects = list_known_subjects(&state, user_key.clone()).await?;
+    let overrides = parse_subject_overrides(&payload.details_text, &known_subjects);
     let time_overrides = parse_time_overrides(&payload.details_text);
     if !has_schedule_input && overrides.is_empty() && time_overrides.is_empty() {
         return Err("Добавь расписание, файл или уточнения по предметам.".to_string());
@@ -1469,7 +1491,7 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
             json!({
                 "weekday": payload.weekday,
                 "file_paths": file_paths,
-                "subjects": SUBJECTS,
+                "subjects": known_subjects.clone(),
             }),
         )
         .await
@@ -1484,7 +1506,7 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
             json!({
                 "weekday": payload.weekday,
                 "text": payload.text,
-                "subjects": SUBJECTS,
+                "subjects": known_subjects.clone(),
             }),
         )
         .await
@@ -1722,6 +1744,7 @@ mod tests {
     fn parses_subject_override_line() {
         let overrides = parse_subject_overrides(
             "Английский язык — Гаршева Анна Геннадьевна, каб. 312",
+            &["Английский язык".to_string()],
         );
         assert_eq!(overrides.len(), 1);
         assert_eq!(overrides[0].subject, "Английский язык");

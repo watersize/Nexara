@@ -371,6 +371,7 @@ async function saveSchedule() {
     renderDays();
     fillWeekdaySelect();
     await loadSchedule(payload.weekday);
+    mergeSubjectsFromSchedule();
     await syncScheduleToCloud(payload.weekday);
     showToast(result.message || "Расписание обновлено");
   } catch (error) {
@@ -482,6 +483,18 @@ function fillSubjectSelect() {
     option.textContent = subject;
     select.appendChild(option);
   });
+}
+
+function mergeSubjectsFromSchedule() {
+  const merged = new Set(state.subjects || []);
+  (state.schedule || []).forEach((lesson) => {
+    const subject = String(lesson?.subject || "").trim();
+    if (subject) {
+      merged.add(subject);
+    }
+  });
+  state.subjects = Array.from(merged).sort((left, right) => left.localeCompare(right, "ru"));
+  fillSubjectSelect();
 }
 
 function fillWeekdaySelect() {
@@ -1021,11 +1034,7 @@ async function mockInvoke(command, args = {}) {
         { value: 6, label: "Суббота" },
         { value: 7, label: "Воскресенье" },
       ],
-      subjects: [
-        "Алгебра", "Геометрия", "Вероятность и статистика", "Русский язык", "Физика", "Химия",
-        "Биология", "Физическая культура", "География", "Информатика", "История",
-        "Обществознание", "Английский язык", "Литература", "Технология", "Классный час", "ОБЖ",
-      ],
+      subjects: [],
       default_weekday: 1,
       default_week_number: 12,
       auth_session: null,

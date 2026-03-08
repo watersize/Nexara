@@ -1248,45 +1248,250 @@ def best_subject_match(text: str, subjects: List[str]) -> str:
     return best_subject if best_score >= 0.62 else ""
 
 
-def normalize_subject_label(text: str, subjects: List[str]) -> str:
-    cleaned = repair_mixed_script_text(normalize_ocr_text(text))
-    lowered = cleaned.lower()
-    key = subject_match_key(cleaned)
+def count_lesson_headers(text: str) -> int:
+    return len(re.findall(r"\b\d{1,2}\s*(?:урок|lesson)\b", normalize_ocr_text(text), re.I))
 
-    fuzzy_aliases = [
-        ((("razgov" in key) or ("gorizont" in key) or ("vazhn" in key) or ("vaznom" in key) or ("vakhnom" in key)), "\u041a\u043b\u0430\u0441\u0441\u043d\u044b\u0439 \u0447\u0430\u0441"),
-        ((("angl" in key) or ("inostr" in key) or ("strann" in key) or ("yazik" in key) or ("yabik" in key)), "\u0410\u043d\u0433\u043b\u0438\u0439\u0441\u043a\u0438\u0439 \u044f\u0437\u044b\u043a"),
-        ((("trud" in key) or ("tehn" in key) or ("tehno" in key)), "\u0422\u0435\u0445\u043d\u043e\u043b\u043e\u0433\u0438\u044f"),
-        (("istor" in key), "\u0418\u0441\u0442\u043e\u0440\u0438\u044f"),
-        (("liter" in key), "\u041b\u0438\u0442\u0435\u0440\u0430\u0442\u0443\u0440\u0430"),
-        (("inform" in key), "\u0418\u043d\u0444\u043e\u0440\u043c\u0430\u0442\u0438\u043a\u0430"),
-        (("geogr" in key), "\u0413\u0435\u043e\u0433\u0440\u0430\u0444\u0438\u044f"),
-        (("algeb" in key), "\u0410\u043b\u0433\u0435\u0431\u0440\u0430"),
-        (("geomet" in key), "\u0413\u0435\u043e\u043c\u0435\u0442\u0440\u0438\u044f"),
-        (("russk" in key), "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 \u044f\u0437\u044b\u043a"),
-        (("fizik" in key), "\u0424\u0438\u0437\u0438\u043a\u0430"),
-        (("him" in key), "\u0425\u0438\u043c\u0438\u044f"),
-        ((("obzh" in key) or ("bezopas" in key) or ("rodin" in key)), "\u041e\u0411\u0416"),
-        ((("veroyat" in key) or ("stat" in key)), "\u0412\u0435\u0440\u043e\u044f\u0442\u043d\u043e\u0441\u0442\u044c \u0438 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430"),
-        (("fizichesk" in key), "\u0424\u0438\u0437\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u043a\u0443\u043b\u044c\u0442\u0443\u0440\u0430"),
-    ]
-    for matched, canonical in fuzzy_aliases:
-        if matched:
-            return canonical
 
-    exact = next((subject for subject in subjects if subject_match_key(subject) == key), "")
-    if exact:
-        return exact
+def is_lesson_header(line: str) -> bool:
+    line = normalize_ocr_text(line)
+    return bool(
+        re.search(r"\b\d{1,2}\s*(?:урок|lesson)\b", line, re.I)
+        or re.search(r"\d{1,2}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}", line)
+    )
 
-    matched = best_subject_match(cleaned, subjects)
-    if matched:
-        return matched
 
-    cleaned = re.sub(r"\b\d+\s*\u0443\u0440\u043e\u043a\b", "", cleaned, flags=re.I)
+def looks_like_teacher_name(value: str) -> bool:
+    cleaned = normalize_ocr_text(value).strip()
+    if len(cleaned) < 8:
+        return False
+    if re.search(r"\b(домашнее|контрольная|не задано|внеурочная|дополнительное|перемена)\b", cleaned, re.I):
+        return False
+    return bool(
+        re.search(r"[А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){1,2}", cleaned)
+        or re.search(r"[А-ЯЁ][а-яё-]+\s+[А-ЯЁ]\.[А-ЯЁ]\.", cleaned)
+    )
+
+
+def is_break_line(line: str) -> bool:
+    lowered = normalize_ocr_text(line).lower()
+    return "перемен" in lowered or re.search(r"\bbreak\b", lowered, re.I) is not None
+
+
+def subject_match_key(text: str) -> str:
+    cleaned = normalize_ocr_text(text).lower()
+    cleaned = re.sub(r"\b\d+\s*урок\b", "", cleaned, flags=re.I)
     cleaned = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", cleaned)
-    cleaned = re.sub(r"\b(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b(?:каб(?:инет)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^(?:группа\s+)?", "", cleaned, flags=re.I)
+    cleaned = cleaned.replace("№", " ")
+    translit = str.maketrans({
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+        "ж": "zh", "з": "z", "и": "i", "й": "i", "к": "k", "л": "l", "м": "m",
+        "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+        "ф": "f", "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sh",
+        "ы": "y", "э": "e", "ю": "u", "я": "ya", "ь": "", "ъ": "",
+    })
+    key = cleaned.translate(translit)
+    key = key.replace("6", "b").replace("3", "z").replace("0", "o").replace("9", "ya")
+    key = re.sub(r"[^a-z]+", "", key)
+    return key
+
+
+def best_subject_match(text: str, subjects: List[str]) -> str:
+    if not subjects:
+        return ""
+    normalized = subject_match_key(text)
+    if not normalized:
+        return ""
+    best_subject = ""
+    best_score = 0.0
+    for subject in subjects:
+        candidate = subject_match_key(subject)
+        if not candidate:
+            continue
+        score = SequenceMatcher(None, normalized, candidate).ratio()
+        if score > best_score:
+            best_score = score
+            best_subject = subject
+    return best_subject if best_score >= 0.86 else ""
+
+
+def clean_subject_candidate(text: str) -> str:
+    cleaned = normalize_ocr_text(text)
+    cleaned = re.sub(r"\b\d+\s*урок\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}\b", "", cleaned)
+    cleaned = re.sub(r"\b(?:каб(?:инет)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\b(?:внеурочная деятельность|контрольная работа|домашнее задание)\b", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^(?:группа\s+)", "", cleaned, flags=re.I)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-[]")
+    if re.search(r"(?:разговоры о важном|мои горизонты)", cleaned, re.I):
+        cleaned = re.sub(r"\b\d+[А-Яа-яA-Za-z]?\b$", "", cleaned).strip(" ,.-")
     return cleaned
+
+
+def extract_subject_candidate(block: List[str]) -> str:
+    for line in block[1:] if len(block) > 1 else block:
+        cleaned = clean_subject_candidate(line)
+        if not cleaned or is_lesson_header(cleaned) or is_break_line(cleaned) or is_ignored_schedule_line(cleaned):
+            continue
+        if looks_like_teacher_name(cleaned):
+            continue
+        if len(cleaned) >= 2:
+            return cleaned
+    return ""
+
+
+def normalize_subject_label(text: str, subjects: List[str]) -> str:
+    cleaned = clean_subject_candidate(text)
+    matched = best_subject_match(cleaned, subjects)
+    return matched or cleaned
+
+
+def clean_lesson_notes(value: str, subject: str) -> str:
+    cleaned = normalize_ocr_text(value)
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    if is_break_line(cleaned) or is_ignored_schedule_line(cleaned):
+        return ""
+    if "внеурочная деятельность" in lowered:
+        return ""
+    if re.search(r"\b\d{1,2}\s*урок\b", lowered):
+        return ""
+    if re.search(r"\b(?:каб(?:инет)?|room|aud)\.?\s*[\u2116#]?\s*[\w/-]+\b", lowered):
+        return ""
+    if subject and subject.lower() in lowered and len(cleaned) <= len(subject) + 18:
+        return ""
+    return cleaned.strip()
+
+
+def build_schedule_blocks(text: str) -> List[List[str]]:
+    lines = [normalize_schedule_line(line) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    blocks: List[List[str]] = []
+    current: List[str] = []
+    for line in lines:
+        if is_break_line(line):
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        if is_lesson_header(line):
+            if current:
+                blocks.append(current)
+            current = [line]
+            continue
+        if current:
+            current.append(line)
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def parse_diary_schedule_text(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
+    blocks = build_schedule_blocks(text)
+    lessons: List[Dict[str, Any]] = []
+    fallback_start = extract_first_time(text) or "08:30"
+    next_start = fallback_start
+    for index, block in enumerate(blocks):
+        header = next((line for line in block if is_lesson_header(line)), "")
+        subject_line = extract_subject_candidate(block)
+        if not subject_line:
+            continue
+        subject = normalize_subject_label(subject_line, subjects)
+        if not subject:
+            continue
+        range_match = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–—]\s*(\d{1,2}[:.]\d{2})", header)
+        if range_match:
+            start_time = normalize_time(range_match.group(1))
+            end_time = normalize_time(range_match.group(2))
+        else:
+            start_time = next_start if index else fallback_start
+            end_time = add_minutes(start_time, 45)
+        next_start = add_minutes(end_time, 10)
+        room_match = re.search(r"(?:каб(?:инет)?|room|aud)\.?\s*[\u2116#]?\s*([0-9A-Za-zА-Яа-я/-]+)", header, re.I)
+        teacher = ""
+        note_lines: List[str] = []
+        for line in block[1:]:
+            normalized = normalize_schedule_line(line)
+            if not normalized:
+                continue
+            if normalized == subject_line or is_ignored_schedule_line(normalized) or is_break_line(normalized):
+                continue
+            if looks_like_teacher_name(normalized) and not teacher:
+                teacher = normalized
+                continue
+            cleaned_note = clean_lesson_notes(normalized, subject)
+            if cleaned_note:
+                note_lines.append(cleaned_note)
+        lessons.append({
+            "subject": subject,
+            "teacher": teacher,
+            "room": room_match.group(1) if room_match else "",
+            "start_time": start_time,
+            "end_time": end_time,
+            "notes": " ".join(dict.fromkeys(note_lines)),
+            "materials": [],
+        })
+    return lessons
+
+
+def extract_schedule_text_from_image(path: Path) -> str:
+    local_text = normalize_ocr_text(local_ocr_text(path))
+    if count_lesson_headers(local_text) >= 4:
+        return local_text
+    vision_text = normalize_ocr_text(ocr_with_vision(path))
+    return vision_text if count_lesson_headers(vision_text) >= count_lesson_headers(local_text) else local_text
+
+
+def parse_schedule_cards_from_image(path: Path, subjects: List[str]) -> List[Dict[str, Any]]:
+    local_text = normalize_ocr_text(local_ocr_text(path))
+    local_lessons = parse_diary_schedule_text(local_text, subjects)
+    if len(local_lessons) >= 4:
+        return normalize_lessons(local_lessons, subjects)
+    merged_text = extract_schedule_text_from_image(path)
+    merged_lessons = parse_diary_schedule_text(merged_text, subjects)
+    if merged_lessons:
+        return normalize_lessons(merged_lessons, subjects)
+    return []
+
+
+def fallback_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
+    lessons = parse_diary_schedule_text(text, subjects)
+    if lessons:
+        return lessons
+    raise ValueError("Could not parse schedule")
+
+
+def coarse_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
+    return parse_diary_schedule_text(text, subjects)
+
+
+def normalize_lessons(lessons: List[Dict[str, Any]], subjects: List[str]) -> List[Dict[str, Any]]:
+    normalized = []
+    next_start = "08:30"
+    for index, lesson in enumerate(lessons, start=1):
+        subject = normalize_subject_label(str(lesson.get("subject", "")).strip(), subjects)
+        if not subject:
+            subject = f"Урок {index}"
+        start_time = normalize_time(str(lesson.get("start_time", next_start)))
+        end_time = normalize_time(str(lesson.get("end_time", add_minutes(start_time, 45))))
+        teacher = normalize_ocr_text(str(lesson.get("teacher", "")).strip())
+        if not looks_like_teacher_name(teacher):
+            teacher = ""
+        room = normalize_ocr_text(str(lesson.get("room", "")).strip())
+        notes = clean_lesson_notes(str(lesson.get("notes", "")).strip(), subject)
+        normalized.append({
+            "subject": subject,
+            "teacher": teacher,
+            "room": room,
+            "start_time": start_time,
+            "end_time": end_time,
+            "notes": notes,
+            "materials": [normalize_ocr_text(str(item).strip()) for item in lesson.get("materials", []) if str(item).strip()],
+        })
+        next_start = add_minutes(end_time, 10)
+    return normalized
 
 
 if __name__ == "__main__":
