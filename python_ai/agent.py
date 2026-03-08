@@ -1436,6 +1436,51 @@ def parse_diary_schedule_text(text: str, subjects: List[str]) -> List[Dict[str, 
     return lessons
 
 
+def parse_diary_schedule_blocks(text: str) -> List[Dict[str, Any]]:
+    blocks = build_schedule_blocks(text)
+    lessons: List[Dict[str, Any]] = []
+    fallback_start = extract_first_time(text) or "08:30"
+    next_start = fallback_start
+    for index, block in enumerate(blocks):
+        header = next((line for line in block if is_lesson_header(line)), "")
+        subject_line = extract_subject_candidate(block)
+        if not subject_line:
+            continue
+        range_match = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–—]\s*(\d{1,2}[:.]\d{2})", header)
+        if range_match:
+            start_time = normalize_time(range_match.group(1))
+            end_time = normalize_time(range_match.group(2))
+        else:
+            start_time = next_start if index else fallback_start
+            end_time = add_minutes(start_time, 45)
+        next_start = add_minutes(end_time, 10)
+        room_match = re.search(r"(?:\u043a\u0430\u0431(?:\u0438\u043d\u0435\u0442)?|room|aud)\.?\s*[\u2116#]?\s*([0-9A-Za-z\u0400-\u04ff/-]+)", header, re.I)
+        teacher = ""
+        note_lines: List[str] = []
+        for line in block[1:]:
+            normalized = normalize_schedule_line(line)
+            if not normalized or normalized == subject_line:
+                continue
+            if is_ignored_schedule_line(normalized) or is_break_line(normalized):
+                continue
+            if looks_like_teacher_name(normalized) and not teacher:
+                teacher = normalized
+                continue
+            cleaned_note = clean_lesson_notes(normalized, subject_line)
+            if cleaned_note:
+                note_lines.append(cleaned_note)
+        lessons.append({
+            "subject": clean_subject_candidate(subject_line),
+            "teacher": teacher,
+            "room": room_match.group(1) if room_match else "",
+            "start_time": start_time,
+            "end_time": end_time,
+            "notes": " ".join(dict.fromkeys(note_lines)),
+            "materials": [],
+        })
+    return lessons
+
+
 def extract_schedule_text_from_image(path: Path) -> str:
     local_text = normalize_ocr_text(local_ocr_text(path))
     if count_lesson_headers(local_text) >= 4:
@@ -1548,7 +1593,7 @@ def looks_like_teacher_name(value: str) -> bool:
     if len(cleaned) < 8:
         return False
     if re.search(
-        rf"\b({RU_HOMEWORK}|{RU_EXTRACURRICULAR}|\u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d\u0430\u044f|\u043f\u0435\u0440\u0435\u043c\u0435\u043d\u0430)\b",
+        rf"\b({RU_HOMEWORK}|{RU_EXTRACURRICULAR}|\u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d\u0430\u044f|\u043f\u0435\u0440\u0435\u043c\u0435\u043d\u0430|\u0433\u0440\u0443\u043f\u043f\u0430)\b",
         cleaned,
         re.I,
     ):
@@ -1734,6 +1779,8 @@ def parse_diary_schedule_text(text: str, subjects: List[str]) -> List[Dict[str, 
             normalized = normalize_schedule_line(line)
             if not normalized or normalized == subject_line:
                 continue
+            if clean_subject_candidate(normalized) == subject:
+                continue
             if is_ignored_schedule_line(normalized) or is_break_line(normalized):
                 continue
             if looks_like_teacher_name(normalized) and not teacher:
@@ -1788,20 +1835,38 @@ def extract_schedule_text_from_image(path: Path) -> str:
 
 def parse_schedule_cards_from_image(path: Path, subjects: List[str]) -> List[Dict[str, Any]]:
     local_text = normalize_ocr_text(local_ocr_text(path))
-    local_lessons = normalize_lessons(parse_diary_schedule_text(local_text, subjects), subjects)
-    best_lessons = local_lessons
-    best_score = lesson_quality_score(local_lessons)
+    local_blocks = parse_diary_schedule_blocks(local_text)
+    if not local_blocks:
+        return []
 
     chosen_text = extract_schedule_text_from_image(path)
-    if chosen_text and chosen_text != local_text:
-        chosen_lessons = normalize_lessons(parse_diary_schedule_text(chosen_text, subjects), subjects)
-        chosen_score = lesson_quality_score(chosen_lessons)
-        if chosen_score > best_score:
-            best_lessons = chosen_lessons
-            best_score = chosen_score
+    chosen_blocks = parse_diary_schedule_blocks(chosen_text) if chosen_text else []
 
-    if len(best_lessons) >= 2:
-        return best_lessons
+    if chosen_blocks and len(chosen_blocks) == len(local_blocks):
+        merged_blocks: List[Dict[str, Any]] = []
+        for local_block, chosen_block in zip(local_blocks, chosen_blocks):
+            local_subject = normalize_ocr_text(str(local_block.get("subject", "")))
+            chosen_subject = normalize_ocr_text(str(chosen_block.get("subject", "")))
+            use_chosen = (
+                chosen_subject
+                and len(chosen_subject) <= 64
+                and (
+                    latin_noise_ratio(local_subject) > 0.30
+                    or not re.search(r"[\u0400-\u04ff]{3,}", local_subject)
+                )
+                and re.search(r"[\u0400-\u04ff]{3,}", chosen_subject)
+            )
+            merged_blocks.append({
+                **local_block,
+                "subject": chosen_subject if use_chosen else local_subject,
+            })
+        normalized = normalize_lessons(merged_blocks, [])
+        if len(normalized) >= 2:
+            return normalized
+
+    normalized = normalize_lessons(local_blocks, [])
+    if len(normalized) >= 2:
+        return normalized
     return []
 
 

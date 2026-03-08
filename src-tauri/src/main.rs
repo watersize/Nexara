@@ -1491,7 +1491,7 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
             json!({
                 "weekday": payload.weekday,
                 "file_paths": file_paths,
-                "subjects": known_subjects.clone(),
+                "subjects": Vec::<String>::new(),
             }),
         )
         .await
@@ -1506,7 +1506,7 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
             json!({
                 "weekday": payload.weekday,
                 "text": payload.text,
-                "subjects": known_subjects.clone(),
+                "subjects": Vec::<String>::new(),
             }),
         )
         .await
