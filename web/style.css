@@ -486,6 +486,51 @@ body.with-3d .tilt-card:hover {
   gap: 14px;
 }
 
+.file-picker-card__actions,
+.textbook-item__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.textbook-item__actions {
+  margin-top: 12px;
+}
+
+.modal-sheet--compact {
+  width: min(680px, 100%);
+}
+
+.modal-copy {
+  margin: -2px 0 16px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.form-grid--schedule {
+  gap: 14px;
+}
+
+.add-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.add-action-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .textbook-item strong {
   display: block;
 }

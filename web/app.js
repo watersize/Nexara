@@ -80,6 +80,7 @@ function bindUi() {
   document.getElementById("uploadTextbookBtn")?.addEventListener("click", () => document.getElementById("textbookFileInput")?.click());
   document.getElementById("textbookFileInput")?.addEventListener("change", handleTextbookPick);
   document.getElementById("pickScheduleFileBtn")?.addEventListener("click", () => document.getElementById("scheduleFileInput")?.click());
+  document.getElementById("deleteScheduleFileBtn")?.addEventListener("click", clearScheduleFile);
   document.getElementById("scheduleFileInput")?.addEventListener("change", handleScheduleFilePick);
   document.getElementById("openSettingsBtn")?.addEventListener("click", () => openModal("settingsModal"));
   document.getElementById("saveSettingsBtn")?.addEventListener("click", saveSettings);
@@ -338,9 +339,8 @@ async function loadSchedule(weekday) {
 
 async function saveSchedule() {
   const text = document.getElementById("scheduleInput").value.trim();
-  const detailsText = document.getElementById("scheduleDetailsInput").value.trim();
-  if (!text && !state.scheduleFile && !detailsText) {
-    showToast("Добавь текст, файл или уточнения по предметам.");
+  if (!text && !state.scheduleFile) {
+    showToast("Добавь текст или файл с расписанием.");
     return;
   }
   try {
@@ -349,7 +349,7 @@ async function saveSchedule() {
       week_number: state.selectedWeekNumber,
       weekday: Number(document.getElementById("scheduleWeekdaySelect").value),
       text,
-      details_text: detailsText,
+      details_text: text,
       file_name: state.scheduleFile?.name || "",
       file_base64: state.scheduleFile ? await readFileAsDataUrl(state.scheduleFile) : "",
       mime_type: state.scheduleFile?.type || "",
@@ -399,6 +399,12 @@ function handleScheduleFilePick(event) {
   const file = event.target.files?.[0];
   state.scheduleFile = file || null;
   document.getElementById("scheduleFileName").textContent = file ? file.name : "Файл не выбран.";
+}
+
+function clearScheduleFile() {
+  state.scheduleFile = null;
+  document.getElementById("scheduleFileInput").value = "";
+  document.getElementById("scheduleFileName").textContent = "Файл не выбран.";
 }
 
 async function refreshTextbooks() {
@@ -558,6 +564,15 @@ function renderTextbooks() {
       <span>${escapeHtml(book.mime_type)}</span>
       <small>${escapeHtml(book.hash.slice(0, 12))}</small>
     `;
+    const actions = document.createElement("div");
+    actions.className = "textbook-item__actions";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "ghost-btn";
+    deleteButton.textContent = "Удалить учебник";
+    deleteButton.addEventListener("click", () => deleteTextbook(book));
+    actions.appendChild(deleteButton);
+    node.appendChild(actions);
     list.appendChild(node);
   });
 }
@@ -627,11 +642,8 @@ function cycleHint(showToastOnHidden = true) {
 }
 
 function resetScheduleImport() {
-  state.scheduleFile = null;
+  clearScheduleFile();
   document.getElementById("scheduleInput").value = "";
-  document.getElementById("scheduleDetailsInput").value = "";
-  document.getElementById("scheduleFileInput").value = "";
-  document.getElementById("scheduleFileName").textContent = "Файл не выбран.";
 }
 
 function renderWeekControls() {
@@ -877,6 +889,31 @@ async function bootstrapCloudState() {
   }
 }
 
+async function deleteTextbook(book) {
+  if (!confirm(`Удалить учебник ${book.file_name}?`)) {
+    return;
+  }
+  try {
+    showLoading("Удаление учебника...");
+    const result = await invokeWithTimeout("delete_textbook", { payload: { hash: book.hash } }, 45000);
+    state.textbooks = state.textbooks.filter((item) => item.hash !== book.hash);
+    renderTextbooks();
+    updateSummary();
+    if (hasCloudBackend() && state.authSession?.user_id) {
+      await fetchJsonWithTimeout(`${BACKEND_BASE_URL}/sync/file`, {
+        method: "DELETE",
+        body: JSON.stringify({ user_id: state.authSession.user_id, hash: book.hash }),
+      });
+    }
+    showToast(result.message || "Учебник удалён.");
+  } catch (error) {
+    console.error("deleteTextbook failed", error);
+    showToast(normalizeError(error));
+  } finally {
+    hideLoading();
+  }
+}
+
 function showToast(message) {
   const toast = document.getElementById("toast");
   toast.textContent = message;
@@ -956,7 +993,7 @@ async function mockInvoke(command, args = {}) {
       },
     };
   }
-  if (command === "recover_password" || command === "logout_user" || command === "save_settings" || command === "save_schedule" || command === "upload_textbook" || command === "notify_status" || command === "delete_account") {
+  if (command === "recover_password" || command === "logout_user" || command === "save_settings" || command === "save_schedule" || command === "upload_textbook" || command === "notify_status" || command === "delete_account" || command === "delete_textbook") {
     return { ok: true, message: "Готово" };
   }
   if (command === "list_textbooks_command") {

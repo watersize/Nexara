@@ -7,6 +7,7 @@ import re
 import sys
 import warnings
 import zipfile
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, List
 from xml.etree import ElementTree as ET
@@ -146,6 +147,7 @@ def call_groq(model: str, messages: List[Dict[str, Any]], temperature: float = 0
 def parse_schedule(weekday: int, text: str, subjects: List[str]) -> Dict[str, Any]:
     if not text.strip():
         raise ValueError("Schedule text is empty")
+    text = normalize_ocr_text(text)
     fallback_lessons = fallback_parse(text, subjects)
     system = (
         "Ты извлекаешь школьное расписание из текста или OCR. "
@@ -240,10 +242,12 @@ def ocr_with_vision(path: Path) -> str:
     local_text = local_ocr_text(path)
     mime, encoded = prepare_image_for_vision(path)
     prompt = (
-        "Распознай школьное расписание на изображении. "
-        "Сохраняй порядок строк. Для каждой строки старайся удержать время, предмет и кабинет рядом. "
-        "Если есть OCR-ошибки, исправь их до ближайшего школьного предмета. "
-        "Верни только чистый распознанный текст, без JSON и без комментариев."
+        "This is a screenshot or photo of a school schedule. "
+        "Detect the language automatically and transcribe only schedule-related text. "
+        "Ignore homework blocks, links, icons, avatars, status bars and bottom navigation. "
+        "Keep each lesson as one compact block with lesson number, time range, subject and room when visible. "
+        "Fix obvious OCR mistakes in times and subject names. "
+        "Return plain text only, no JSON and no comments."
     )
     messages = [{
         "role": "user",
@@ -252,7 +256,8 @@ def ocr_with_vision(path: Path) -> str:
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
         ],
     }]
-    vision_text = call_groq(VISION_MODEL, messages, 0.1) or ""
+    vision_text = normalize_ocr_text(call_groq(VISION_MODEL, messages, 0.1) or "")
+    local_text = normalize_ocr_text(local_text)
     return vision_text if len(vision_text.strip()) >= len(local_text.strip()) else local_text
 
 
@@ -301,17 +306,22 @@ def split_text_chunks(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
 
 def fallback_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
     lessons = []
-    lesson_duration = extract_minutes(text, r"(?:каждый урок|урок)\s*(?:идет|по)?\s*(\d{2,3})\s*мин") or 45
-    break_duration = extract_minutes(text, r"перемен[аы]\s*(\d{1,3})\s*мин") or 10
+    lesson_duration = extract_minutes(text, r"(?:каждый урок|урок|lesson)\s*(?:идет|по|lasts)?\s*(\d{2,3})\s*(?:мин|min)") or 45
+    break_duration = extract_minutes(text, r"(?:перемен[аы]|break)\s*(\d{1,3})\s*(?:мин|min)") or 10
     previous_end_time = ""
     base_start_time = extract_first_time(text) or "08:30"
-    for index, line in enumerate(split_schedule_segments(text)):
-        line = line.strip(" .;,\n\t")
+    blocks = build_schedule_blocks(text)
+    if not blocks:
+        blocks = [[line] for line in split_schedule_segments(text)]
+    for index, block in enumerate(blocks):
+        line = " ".join(block).strip(" .;,\n\t")
         if not line:
             continue
-        subject = next((item for item in subjects if item.lower() in line.lower()), "Классный час")
-        time_range = re.search(r"(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})", line)
-        single_time = re.search(r"(\d{1,2}:\d{2})", line)
+        subject = detect_subject(block, subjects)
+        if not subject:
+            continue
+        time_range = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–—]\s*(\d{1,2}[:.]\d{2})", line)
+        single_time = re.search(r"(\d{1,2}[:.]\d{2})", line)
         duration = extract_minutes(line, r"(\d{2,3})\s*(?:мин|min)") or lesson_duration
         if time_range:
             start_time = normalize_time(time_range.group(1))
@@ -325,7 +335,7 @@ def fallback_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
         else:
             start_time = base_start_time if index == 0 else add_minutes(base_start_time, index * (lesson_duration + break_duration))
             end_time = add_minutes(start_time, duration)
-        room = re.search(r"(?:каб(?:инет)?|аудитория)\s*([0-9A-Za-zА-Яа-я/-]+)", line, re.I)
+        room = re.search(r"(?:каб(?:инет)?|аудитория|room)\.?\s*([0-9A-Za-zА-Яа-я/-]+)", line, re.I)
         previous_end_time = end_time
         lessons.append({
             "subject": subject,
@@ -358,6 +368,110 @@ def split_schedule_segments(text: str) -> List[str]:
         if chunks:
             return chunks
     return [part.strip() for part in re.split(r"\n+|;", text) if part.strip()]
+
+
+def build_schedule_blocks(text: str) -> List[List[str]]:
+    lines = [normalize_schedule_line(line) for line in text.splitlines()]
+    lines = [line for line in lines if line and not is_ignored_schedule_line(line)]
+    blocks: List[List[str]] = []
+    current: List[str] = []
+    for line in lines:
+        if is_break_line(line):
+            continue
+        if is_lesson_header(line):
+            if current:
+                blocks.append(current)
+            current = [line]
+            continue
+        if current:
+            current.append(line)
+        else:
+            current = [line]
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def normalize_ocr_text(text: str) -> str:
+    cleaned = text.replace("\r", "\n")
+    cleaned = cleaned.replace("–", "-").replace("—", "-").replace("−", "-")
+    cleaned = re.sub(r"(?<=\d)[.](?=\d{2}\b)", ":", cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def normalize_schedule_line(line: str) -> str:
+    line = normalize_ocr_text(line).strip(" |")
+    line = re.sub(r"\s+", " ", line)
+    return line.strip()
+
+
+def is_lesson_header(line: str) -> bool:
+    return bool(
+        re.search(r"\b\d{1,2}\s*(?:урок|lesson)\b", line, re.I)
+        or re.search(r"\d{1,2}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}", line)
+    )
+
+
+def is_break_line(line: str) -> bool:
+    return bool(re.search(r"\b(перемена|break)\b", line, re.I))
+
+
+def is_ignored_schedule_line(line: str) -> bool:
+    lowered = line.lower()
+    ignored_fragments = [
+        "домашнее задание",
+        "homework",
+        "gosuslugi",
+        "http://",
+        "https://",
+        "оценки",
+        "задания",
+        "школа",
+        "профиль",
+        "ученик",
+    ]
+    if any(fragment in lowered for fragment in ignored_fragments):
+        return True
+    if re.fullmatch(r"[пвсч]\w{0,2}", lowered):
+        return True
+    if re.fullmatch(r"\d{1,2}", lowered):
+        return True
+    return False
+
+
+def detect_subject(block: List[str], subjects: List[str]) -> str:
+    best_subject = ""
+    best_score = 0.0
+    for line in block:
+        subject = best_subject_match(line, subjects)
+        if not subject:
+            continue
+        score = SequenceMatcher(None, line.lower(), subject.lower()).ratio()
+        if subject.lower() in line.lower():
+            score += 1.0
+        if score > best_score:
+            best_score = score
+            best_subject = subject
+    return best_subject
+
+
+def best_subject_match(text: str, subjects: List[str]) -> str:
+    lowered = text.lower()
+    for subject in subjects:
+        if subject.lower() in lowered:
+            return subject
+    normalized = re.sub(r"[^a-zа-я0-9]+", "", lowered, flags=re.I)
+    best_subject = ""
+    best_score = 0.0
+    for subject in subjects:
+        candidate = re.sub(r"[^a-zа-я0-9]+", "", subject.lower(), flags=re.I)
+        score = SequenceMatcher(None, normalized, candidate).ratio()
+        if score > best_score:
+            best_score = score
+            best_subject = subject
+    return best_subject if best_score >= 0.55 else ""
 
 
 def extract_minutes(text: str, pattern: str) -> int | None:
@@ -412,7 +526,7 @@ def merge_times_from_fallback(primary: List[Dict[str, Any]], fallback: List[Dict
 
 
 def normalize_time(value: str) -> str:
-    match = re.search(r"(\d{1,2}):(\d{2})", value)
+    match = re.search(r"(\d{1,2})[:.](\d{2})", value)
     if not match:
         return "08:30"
     return f"{int(match.group(1)):02d}:{match.group(2)}"

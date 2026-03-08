@@ -62,7 +62,10 @@
 
         <div class="sidebar-block">
           <span class="eyebrow">Действия</span>
-          <button class="primary-btn" id="openScheduleModalBtn" type="button">Добавить расписание</button>
+          <button class="primary-btn add-action-btn" id="openScheduleModalBtn" type="button">
+            <span class="add-action-btn__icon">+</span>
+            <span>Добавить</span>
+          </button>
           <button class="ghost-btn" id="uploadTextbookBtn" type="button">Загрузить учебник</button>
           <button class="ghost-btn" id="refreshDayBtn" type="button">Обновить день</button>
           <button class="ghost-btn" id="openChatBtn" type="button">Открыть AI-чат</button>
@@ -192,30 +195,33 @@
     </aside>
 
     <div class="modal" id="scheduleModal">
-      <div class="modal-sheet tilt-card">
+      <div class="modal-sheet modal-sheet--compact tilt-card">
         <div class="panel-head">
           <div>
             <span class="eyebrow">Импорт</span>
-            <h3>Добавить расписание</h3>
+            <h3>Добавить</h3>
           </div>
           <button class="ghost-btn" data-close-modal="scheduleModal" type="button">Закрыть</button>
         </div>
-        <div class="form-grid">
+        <p class="modal-copy">Вставь новое расписание, пришли скрин или напиши уточнение обычным текстом. Если день уже заполнен, Nexara сама поймёт, что нужно обновить.</p>
+        <div class="form-grid form-grid--schedule">
           <select id="scheduleWeekdaySelect"></select>
-          <textarea id="scheduleInput" rows="7" placeholder="Например: Алгебра 8:30-9:15, Геометрия 9:30-10:15, все уроки по 45 минут"></textarea>
-          <textarea id="scheduleDetailsInput" rows="4" placeholder="Уточнения по предметам: например, Английский язык — Гаршева Анна Геннадьевна, каб. 312"></textarea>
+          <textarea id="scheduleInput" rows="8" placeholder="Например: Английский язык — Гаршева Анна Геннадьевна, каб. 312. Или: 2 урок 09:25-10:10. Или вставь всё расписание целиком."></textarea>
           <div class="file-picker-card">
             <div>
               <strong>Скриншот, фото или файл</strong>
               <p id="scheduleFileName">Файл не выбран.</p>
             </div>
-            <button class="ghost-btn" id="pickScheduleFileBtn" type="button">Выбрать файл</button>
+            <div class="file-picker-card__actions">
+              <button class="ghost-btn" id="pickScheduleFileBtn" type="button">Выбрать файл</button>
+              <button class="ghost-btn" id="deleteScheduleFileBtn" type="button">Удалить фото</button>
+            </div>
           </div>
           <input id="scheduleFileInput" type="file" accept="image/*,.pdf,.docx,.txt" hidden />
         </div>
         <div class="modal-actions">
           <button class="ghost-btn" data-close-modal="scheduleModal" type="button">Отмена</button>
-          <button class="primary-btn" id="saveScheduleBtn" type="button">Сохранить</button>
+          <button class="primary-btn" id="saveScheduleBtn" type="button">Добавить</button>
         </div>
       </div>
     </div>
