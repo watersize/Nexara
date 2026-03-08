@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { AppShell } from '@/components/app-shell'
@@ -47,6 +47,7 @@ export default function TextbooksPage() {
   const [preview, setPreview] = useState<TextbookPreview | null>(null)
   const [isPreviewLoading, setIsPreviewLoading] = useState(false)
   const [zoom, setZoom] = useState(1)
+  const [pdfObjectUrl, setPdfObjectUrl] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const loadTextbooks = async () => {
@@ -65,6 +66,37 @@ export default function TextbooksPage() {
   useEffect(() => {
     void loadTextbooks()
   }, [])
+
+  useEffect(() => {
+    if (preview?.kind !== 'pdf' || !preview.content) {
+      setPdfObjectUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current)
+        }
+        return ''
+      })
+      return
+    }
+
+    const mime = preview.mime_type || 'application/pdf'
+    const binary = atob(preview.content)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index)
+    }
+
+    const nextUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
+    setPdfObjectUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current)
+      }
+      return nextUrl
+    })
+
+    return () => {
+      URL.revokeObjectURL(nextUrl)
+    }
+  }, [preview])
 
   const upload = async (file: File) => {
     setIsUploading(true)
@@ -107,10 +139,17 @@ export default function TextbooksPage() {
     }
   }
 
-  const pdfSrc =
-    preview?.kind === 'pdf'
-      ? `data:${preview.mime_type || 'application/pdf'};base64,${preview.content}#toolbar=0`
-      : ''
+  const closePreview = () => {
+    setPreview(null)
+    setZoom(1)
+  }
+
+  const pdfSrc = useMemo(() => {
+    if (!pdfObjectUrl) {
+      return ''
+    }
+    return `${pdfObjectUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&zoom=${Math.round(zoom * 100)}`
+  }, [pdfObjectUrl, zoom])
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
@@ -191,7 +230,7 @@ export default function TextbooksPage() {
           )}
         </div>
 
-        <Dialog open={Boolean(preview) || isPreviewLoading} onOpenChange={(open) => !open && setPreview(null)}>
+        <Dialog open={Boolean(preview) || isPreviewLoading} onOpenChange={(open) => !open && closePreview()}>
           <DialogContent
             showCloseButton={false}
             className="h-[94vh] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-[calc(100vw-2rem)]"
@@ -205,7 +244,7 @@ export default function TextbooksPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setZoom((current) => Math.max(0.6, Number((current - 0.1).toFixed(2))))}
+                  onClick={() => setZoom((current) => Math.max(0.75, Number((current - 0.15).toFixed(2))))}
                   className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
                 >
                   <ZoomOut className="h-4 w-4" />
@@ -213,14 +252,14 @@ export default function TextbooksPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setZoom((current) => Math.min(2, Number((current + 0.1).toFixed(2))))}
+                  onClick={() => setZoom((current) => Math.min(2.5, Number((current + 0.15).toFixed(2))))}
                   className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
                 >
                   <ZoomIn className="h-4 w-4" />
                 </Button>
                 <button
                   type="button"
-                  onClick={() => setPreview(null)}
+                  onClick={closePreview}
                   className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
                 >
                   <X className="h-5 w-5" />
@@ -228,26 +267,29 @@ export default function TextbooksPage() {
               </div>
             </div>
 
-            <div className="h-[calc(94vh-80px)] overflow-auto px-5 py-5 scrollbar-none">
+            <div className="h-[calc(94vh-80px)] overflow-hidden px-5 py-5">
               {isPreviewLoading ? (
                 <div className="flex h-full items-center justify-center gap-3 text-white/70">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   Загружаю файл...
                 </div>
               ) : preview?.kind === 'pdf' ? (
-                <div className="overflow-auto rounded-[24px] border border-white/8 bg-white p-4">
-                  <iframe
-                    title={preview.file_name}
-                    src={pdfSrc}
-                    className="min-h-[78vh] w-full"
-                    style={{
-                      transform: `scale(${zoom})`,
-                      transformOrigin: 'top center',
-                    }}
-                  />
+                <div className="h-full overflow-hidden rounded-[24px] border border-white/8 bg-[#f4f5f8]">
+                  {pdfSrc ? (
+                    <iframe
+                      key={pdfSrc}
+                      title={preview.file_name}
+                      src={pdfSrc}
+                      className="h-full min-h-[78vh] w-full"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-600">
+                      Не удалось подготовить PDF для предпросмотра.
+                    </div>
+                  )}
                 </div>
               ) : preview?.kind === 'text' ? (
-                <div className="rounded-[24px] border border-white/8 bg-white/[0.04] p-6">
+                <div className="h-full overflow-auto rounded-[24px] border border-white/8 bg-white/[0.04] p-6 scrollbar-none">
                   <pre
                     className="whitespace-pre-wrap break-words text-white/85"
                     style={{ fontSize: `${16 * zoom}px`, lineHeight: 1.7 }}
