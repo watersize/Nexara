@@ -73,6 +73,19 @@ struct MaterialRecord {
     created_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct TextbookPreviewPayload {
+    hash: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TextbookPreviewResponse {
+    kind: String,
+    file_name: String,
+    mime_type: String,
+    content: String,
+}
+
 #[derive(Debug, Serialize)]
 struct WeekdayOption {
     value: i64,
@@ -1680,6 +1693,51 @@ async fn list_textbooks_command(state: State<'_, AppState>) -> Result<Vec<Materi
 }
 
 #[tauri::command]
+async fn get_textbook_preview(
+    payload: TextbookPreviewPayload,
+    state: State<'_, AppState>,
+) -> Result<TextbookPreviewResponse, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let materials = list_materials(&state, user_key).await?;
+    let material = materials
+        .into_iter()
+        .find(|item| item.hash == payload.hash)
+        .ok_or_else(|| "Учебник не найден".to_string())?;
+
+    let bytes = tokio::fs::read(&material.stored_path)
+        .await
+        .map_err(|err| err.to_string())?;
+    let lower_name = material.file_name.to_lowercase();
+    let lower_mime = material.mime_type.to_lowercase();
+
+    if lower_mime.contains("pdf") || lower_name.ends_with(".pdf") {
+        return Ok(TextbookPreviewResponse {
+            kind: "pdf".into(),
+            file_name: material.file_name,
+            mime_type: material.mime_type,
+            content: BASE64.encode(bytes),
+        });
+    }
+
+    if lower_mime.contains("text") || lower_name.ends_with(".txt") {
+        return Ok(TextbookPreviewResponse {
+            kind: "text".into(),
+            file_name: material.file_name,
+            mime_type: material.mime_type,
+            content: String::from_utf8_lossy(&bytes).to_string(),
+        });
+    }
+
+    Ok(TextbookPreviewResponse {
+        kind: "unsupported".into(),
+        file_name: material.file_name,
+        mime_type: material.mime_type,
+        content: "Предпросмотр доступен только для PDF и TXT файлов.".into(),
+    })
+}
+
+#[tauri::command]
 async fn get_schedule_for_weekday(
     week_number: i64,
     weekday: i64,
@@ -1776,6 +1834,7 @@ fn main() {
             upload_textbook,
             delete_textbook,
             list_textbooks_command,
+            get_textbook_preview,
             get_schedule_for_weekday,
             ask_ai,
             generate_study_plan,

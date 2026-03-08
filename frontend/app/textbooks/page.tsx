@@ -5,9 +5,10 @@ import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
-import { FileText, FileUp, Loader2, Trash2 } from 'lucide-react'
+import { FileText, FileUp, Loader2, Search, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface MaterialRecord {
@@ -16,6 +17,13 @@ interface MaterialRecord {
   mime_type: string
   stored_path: string
   created_at: string
+}
+
+interface TextbookPreview {
+  kind: 'pdf' | 'text' | 'unsupported'
+  file_name: string
+  mime_type: string
+  content: string
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer) {
@@ -36,6 +44,9 @@ export default function TextbooksPage() {
   const [textbooks, setTextbooks] = useState<MaterialRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
+  const [preview, setPreview] = useState<TextbookPreview | null>(null)
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false)
+  const [zoom, setZoom] = useState(1)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const loadTextbooks = async () => {
@@ -43,14 +54,16 @@ export default function TextbooksPage() {
     try {
       setTextbooks(await tauriInvoke<MaterialRecord[]>('list_textbooks_command'))
     } catch (error) {
-      toast.error('Не удалось загрузить учебники', { description: error instanceof Error ? error.message : String(error) })
+      toast.error('Не удалось загрузить учебники', {
+        description: error instanceof Error ? error.message : String(error),
+      })
     } finally {
       setIsLoading(false)
     }
   }
 
   useEffect(() => {
-    loadTextbooks()
+    void loadTextbooks()
   }, [])
 
   const upload = async (file: File) => {
@@ -68,11 +81,36 @@ export default function TextbooksPage() {
       toast.success('Учебник загружен')
       await loadTextbooks()
     } catch (error) {
-      toast.error('Ошибка загрузки', { description: error instanceof Error ? error.message : String(error) })
+      toast.error('Ошибка загрузки', {
+        description: error instanceof Error ? error.message : String(error),
+      })
     } finally {
       setIsUploading(false)
     }
   }
+
+  const openPreview = async (book: MaterialRecord) => {
+    setIsPreviewLoading(true)
+    setPreview(null)
+    setZoom(1)
+    try {
+      const result = await tauriInvoke<TextbookPreview>('get_textbook_preview', {
+        payload: { hash: book.hash },
+      })
+      setPreview(result)
+    } catch (error) {
+      toast.error('Не удалось открыть файл', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setIsPreviewLoading(false)
+    }
+  }
+
+  const pdfSrc =
+    preview?.kind === 'pdf'
+      ? `data:${preview.mime_type || 'application/pdf'};base64,${preview.content}#toolbar=0`
+      : ''
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
@@ -103,7 +141,9 @@ export default function TextbooksPage() {
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {isLoading ? (
-            [0, 1, 2].map((item) => <div key={item} className="h-48 animate-pulse rounded-[24px] border border-white/7 bg-white/[0.04]" />)
+            [0, 1, 2].map((item) => (
+              <div key={item} className="h-48 animate-pulse rounded-[24px] border border-white/7 bg-white/[0.04]" />
+            ))
           ) : textbooks.length ? (
             textbooks.map((book) => (
               <article key={book.hash} className="rounded-[24px] border border-white/7 bg-white/[0.03] p-5">
@@ -124,10 +164,23 @@ export default function TextbooksPage() {
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
+
                 <div className="mt-4 text-lg font-semibold text-white">{book.file_name}</div>
                 <div className="mt-2 text-sm text-white/55">{book.mime_type}</div>
+
+                <button
+                  type="button"
+                  onClick={() => void openPreview(book)}
+                  className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:text-primary/80"
+                >
+                  <Search className="h-4 w-4" />
+                  Просмотреть
+                </button>
+
                 <div className="mt-5 text-xs text-white/40">
-                  {book.created_at ? format(new Date(book.created_at), 'd MMMM yyyy, HH:mm', { locale: ru }) : 'Дата не указана'}
+                  {book.created_at
+                    ? format(new Date(book.created_at), 'd MMMM yyyy, HH:mm', { locale: ru })
+                    : 'Дата не указана'}
                 </div>
               </article>
             ))
@@ -137,6 +190,81 @@ export default function TextbooksPage() {
             </div>
           )}
         </div>
+
+        <Dialog open={Boolean(preview) || isPreviewLoading} onOpenChange={(open) => !open && setPreview(null)}>
+          <DialogContent
+            showCloseButton={false}
+            className="h-[94vh] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-[calc(100vw-2rem)]"
+          >
+            <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Предпросмотр</div>
+                <div className="mt-1 text-xl font-semibold text-white">{preview?.file_name || 'Открываю файл...'}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setZoom((current) => Math.max(0.6, Number((current - 0.1).toFixed(2))))}
+                  className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setZoom((current) => Math.min(2, Number((current + 0.1).toFixed(2))))}
+                  className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setPreview(null)}
+                  className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="h-[calc(94vh-80px)] overflow-auto px-5 py-5 scrollbar-none">
+              {isPreviewLoading ? (
+                <div className="flex h-full items-center justify-center gap-3 text-white/70">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  Загружаю файл...
+                </div>
+              ) : preview?.kind === 'pdf' ? (
+                <div className="overflow-auto rounded-[24px] border border-white/8 bg-white p-4">
+                  <iframe
+                    title={preview.file_name}
+                    src={pdfSrc}
+                    className="min-h-[78vh] w-full"
+                    style={{
+                      transform: `scale(${zoom})`,
+                      transformOrigin: 'top center',
+                    }}
+                  />
+                </div>
+              ) : preview?.kind === 'text' ? (
+                <div className="rounded-[24px] border border-white/8 bg-white/[0.04] p-6">
+                  <pre
+                    className="whitespace-pre-wrap break-words text-white/85"
+                    style={{ fontSize: `${16 * zoom}px`, lineHeight: 1.7 }}
+                  >
+                    {preview.content}
+                  </pre>
+                </div>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <div className="rounded-[24px] border border-white/8 bg-white/[0.04] px-6 py-5 text-white/75">
+                    {preview?.content || 'Файл не поддерживается для предпросмотра.'}
+                  </div>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </main>
     </AppShell>
   )

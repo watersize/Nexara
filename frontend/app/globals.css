@@ -136,6 +136,50 @@
   }
 }
 
+.theme-light-app {
+  background:
+    radial-gradient(circle at top, rgba(88, 115, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, #f6f8ff 0%, #eef3fb 100%) !important;
+  color: #0f172a;
+}
+
+.theme-light-app .app-sidebar {
+  background:
+    radial-gradient(circle at top, rgba(88, 115, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.98)) !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+.theme-light-app [class*='text-white'] {
+  color: rgba(15, 23, 42, 0.96) !important;
+}
+
+.theme-light-app [class*='placeholder:text-white']::placeholder {
+  color: rgba(71, 85, 105, 0.7) !important;
+}
+
+.theme-light-app [class*='border-white'] {
+  border-color: rgba(15, 23, 42, 0.1) !important;
+}
+
+.theme-light-app [class*='bg-white'] {
+  background-color: rgba(255, 255, 255, 0.82) !important;
+}
+
+.theme-light-app [class*='bg-black'] {
+  background-color: rgba(241, 245, 249, 0.96) !important;
+}
+
+.theme-light-app [class*='bg-[radial-gradient'] {
+  background:
+    radial-gradient(circle at top, rgba(88, 115, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.96)) !important;
+}
+
+.theme-light-app [class*='shadow-'] {
+  box-shadow: 0 18px 48px -24px rgba(37, 99, 235, 0.18) !important;
+}
+
 /* Custom Nexara Animations */
 @keyframes float {
   0%, 100% { transform: translateY(0px); }

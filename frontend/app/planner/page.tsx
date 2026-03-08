@@ -81,9 +81,12 @@ export default function PlannerPage() {
     bucket: 'today' as TaskBucket,
   })
 
-  const persistTasks = (nextTasks: TaskItem[]) => {
-    setTasks(nextTasks)
-    window.localStorage.setItem(storageKey, JSON.stringify(nextTasks))
+  const persistTasks = (updater: (current: TaskItem[]) => TaskItem[]) => {
+    setTasks((current) => {
+      const nextTasks = updater(current)
+      window.localStorage.setItem(storageKey, JSON.stringify(nextTasks))
+      return nextTasks
+    })
   }
 
   useEffect(() => {
@@ -113,7 +116,7 @@ export default function PlannerPage() {
 
   const saveTask = () => {
     if (!draft.title.trim()) return
-    const nextTasks = [
+    persistTasks((current) => [
       {
         id: `task-${Date.now()}`,
         title: draft.title.trim(),
@@ -123,9 +126,8 @@ export default function PlannerPage() {
         bucket: draft.bucket,
         done: false,
       },
-      ...tasks,
-    ]
-    persistTasks(nextTasks)
+      ...current,
+    ])
     setDraft({
       title: '',
       subject: '',
@@ -137,8 +139,8 @@ export default function PlannerPage() {
   }
 
   const toggleTask = (id: string) => {
-    persistTasks(
-      tasks.map((task) =>
+    persistTasks((current) =>
+      current.map((task) =>
         task.id === id
           ? {
               ...task,
@@ -151,7 +153,7 @@ export default function PlannerPage() {
   }
 
   const removeTask = (id: string) => {
-    persistTasks(tasks.filter((task) => task.id !== id))
+    persistTasks((current) => current.filter((task) => task.id !== id))
   }
 
   return (

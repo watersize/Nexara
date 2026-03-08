@@ -59,9 +59,16 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(64,88,255,0.22),_transparent_28%),linear-gradient(180deg,_#050814_0%,_#060914_100%)] text-white">
+    <div
+      className={cn(
+        'min-h-screen text-white',
+        resolvedTheme === 'light'
+          ? 'theme-light-app'
+          : 'bg-[radial-gradient(circle_at_top,_rgba(64,88,255,0.22),_transparent_28%),linear-gradient(180deg,_#050814_0%,_#060914_100%)]',
+      )}
+    >
       <div className="flex min-h-screen">
-        <aside className="hidden lg:flex lg:w-56 lg:shrink-0 lg:flex-col lg:border-r lg:border-white/6 lg:bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.16),_transparent_32%),linear-gradient(180deg,_rgba(10,12,24,0.98),_rgba(6,8,18,1))] xl:w-60">
+        <aside className="app-sidebar hidden lg:flex lg:w-56 lg:shrink-0 lg:flex-col lg:border-r lg:border-white/6 lg:bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.16),_transparent_32%),linear-gradient(180deg,_rgba(10,12,24,0.98),_rgba(6,8,18,1))] xl:w-60">
           <div className="px-4 pb-4 pt-5 xl:px-5">
             <Link href="/" className="flex items-center gap-3 rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/20 text-primary shadow-lg shadow-primary/15">
