@@ -208,7 +208,7 @@ def parse_schedule_from_files(weekday: int, file_paths: List[str], subjects: Lis
 def extract_text_from_file(path: Path) -> str:
     ext = path.suffix.lower()
     if ext in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
-        return ocr_with_vision(path)
+        return extract_schedule_text_from_image(path)
     if ext == ".pdf":
         return "\n".join(read_pdf_pages(path))
     if ext == ".docx":
@@ -243,6 +243,15 @@ def local_ocr_text(path: Path) -> str:
         if len(item) >= 2 and item[1]:
             parts.append(str(item[1]))
     return "\n".join(parts).strip()
+
+
+def count_lesson_headers(text: str) -> int:
+    return len(re.findall(r"\b\d{1,2}\s*(?:урок|lesson)\b", text, re.I))
+
+
+def extract_schedule_text_from_image(path: Path) -> str:
+    local_text = normalize_ocr_text(local_ocr_text(path))
+    return local_text
 
 
 def prepare_image_for_vision(path: Path) -> tuple[str, str]:
@@ -290,6 +299,15 @@ def ocr_with_vision(path: Path) -> str:
 
 
 def parse_schedule_cards_from_image(path: Path, subjects: List[str]) -> List[Dict[str, Any]]:
+    text = extract_schedule_text_from_image(path)
+    if text.strip():
+        try:
+            return fallback_parse(text, subjects)
+        except Exception:
+            try:
+                return coarse_parse(text, subjects)
+            except Exception:
+                return []
     if not GROQ_API_KEY.strip():
         return []
     try:
