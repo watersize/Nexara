@@ -81,6 +81,11 @@ export default function PlannerPage() {
     bucket: 'today' as TaskBucket,
   })
 
+  const persistTasks = (nextTasks: TaskItem[]) => {
+    setTasks(nextTasks)
+    window.localStorage.setItem(storageKey, JSON.stringify(nextTasks))
+  }
+
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(storageKey)
@@ -108,7 +113,7 @@ export default function PlannerPage() {
 
   const saveTask = () => {
     if (!draft.title.trim()) return
-    setTasks((current) => [
+    const nextTasks = [
       {
         id: `task-${Date.now()}`,
         title: draft.title.trim(),
@@ -118,8 +123,9 @@ export default function PlannerPage() {
         bucket: draft.bucket,
         done: false,
       },
-      ...current,
-    ])
+      ...tasks,
+    ]
+    persistTasks(nextTasks)
     setDraft({
       title: '',
       subject: '',
@@ -131,8 +137,8 @@ export default function PlannerPage() {
   }
 
   const toggleTask = (id: string) => {
-    setTasks((current) =>
-      current.map((task) =>
+    persistTasks(
+      tasks.map((task) =>
         task.id === id
           ? {
               ...task,
@@ -145,7 +151,7 @@ export default function PlannerPage() {
   }
 
   const removeTask = (id: string) => {
-    setTasks((current) => current.filter((task) => task.id !== id))
+    persistTasks(tasks.filter((task) => task.id !== id))
   }
 
   return (
@@ -305,11 +311,11 @@ export default function PlannerPage() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label className="text-white/70">Предмет</Label>
+                <Label className="text-white/70">Тема</Label>
                 <Input
                   value={draft.subject}
                   onChange={(event) => setDraft((current) => ({ ...current, subject: event.target.value }))}
-                  placeholder="Например: Химия"
+                  placeholder="Например: контрольная по химии"
                   className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28 dark:border-white/10 dark:bg-black/20"
                 />
               </div>

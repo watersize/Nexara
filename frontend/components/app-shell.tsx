@@ -4,6 +4,8 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
+import { tauriInvoke } from '@/lib/tauri-bridge'
+import { useAppState } from '@/lib/tauri-provider'
 import { cn } from '@/lib/utils'
 import {
   BookOpen,
@@ -36,6 +38,25 @@ export function AppShell({
 }) {
   const pathname = usePathname()
   const { resolvedTheme, setTheme } = useTheme()
+  const appState = useAppState()
+
+  const toggleTheme = async () => {
+    const nextTheme = resolvedTheme === 'dark' ? 'light' : 'dark'
+    setTheme(nextTheme)
+    try {
+      await tauriInvoke('save_settings', {
+        settings: {
+          theme: nextTheme === 'light' ? 'theme-light' : 'theme-dark',
+          hints_enabled: Boolean(appState?.settings?.hints_enabled),
+          enable_3d: Boolean(appState?.settings?.enable_3d),
+          reminder_hours: Number(appState?.settings?.reminder_hours ?? 18),
+          telegram_enabled: Boolean(appState?.settings?.telegram_enabled),
+          telegram_bot_token: appState?.settings?.telegram_bot_token || '',
+          telegram_chat_id: appState?.settings?.telegram_chat_id || '',
+        },
+      })
+    } catch {}
+  }
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(64,88,255,0.22),_transparent_28%),linear-gradient(180deg,_#050814_0%,_#060914_100%)] text-white">
@@ -94,7 +115,7 @@ export function AppShell({
             </Link>
             <button
               type="button"
-              onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+              onClick={toggleTheme}
               className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm text-white/60 transition-all hover:bg-white/[0.04] hover:text-white xl:px-4"
             >
               <MoonStar className="h-4 w-4 shrink-0" />

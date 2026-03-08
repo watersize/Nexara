@@ -153,7 +153,7 @@ export default function NotebookPage() {
                 <div className="truncate text-lg font-semibold text-white">{note.title}</div>
                 <div className="mt-1 line-clamp-2 text-sm text-white/55">{note.content}</div>
                 <div className="mt-3 flex items-center justify-between text-xs text-white/40">
-                  <span className="rounded-full bg-primary/12 px-2 py-1 text-primary">{note.subject || 'Без предмета'}</span>
+                  <span className="rounded-full bg-primary/12 px-2 py-1 text-primary">{note.subject || 'Без темы'}</span>
                   <span>{new Date(note.updatedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               </button>
@@ -186,7 +186,7 @@ export default function NotebookPage() {
                   <Input
                     value={selectedNote.subject}
                     onChange={(event) => updateNote(selectedNote.id, { subject: event.target.value })}
-                    placeholder="Предмет"
+                    placeholder="Тема"
                     className="h-10 w-44 rounded-xl border-white/10 bg-white/[0.03] text-white placeholder:text-white/28 dark:border-white/10 dark:bg-white/[0.03]"
                   />
                   <span className="text-xs text-white/35">Сохранено автоматически</span>

@@ -167,7 +167,7 @@ export default function SettingsPage() {
           <SettingsCard title="Внешний вид">
             <SettingsRow
               icon={<MoonStar className="h-5 w-5" />}
-              title="Тёмная тема"
+              title="Переключение темы"
               description={`Сейчас: ${resolvedTheme === 'light' ? 'светлая' : 'тёмная'}`}
               trailing={<Switch checked={resolvedTheme !== 'light'} onCheckedChange={toggleTheme} />}
             />
