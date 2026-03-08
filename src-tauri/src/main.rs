@@ -1691,7 +1691,7 @@ async fn get_schedule_for_weekday(
 }
 
 #[tauri::command]
-async fn ask_ai(question: String, state: State<'_, AppState>) -> Result<ChatResponse, String> {
+async fn ask_ai(question: String, context: Option<String>, state: State<'_, AppState>) -> Result<ChatResponse, String> {
     let session = load_auth_session(&state).await?;
     let user_key = local_user_key(session.as_ref());
     let storage_dir = state.rag_dir.join(user_key);
@@ -1701,6 +1701,7 @@ async fn ask_ai(question: String, state: State<'_, AppState>) -> Result<ChatResp
         json!({
             "question": question,
             "storage_dir": storage_dir.to_string_lossy(),
+            "context": context.unwrap_or_default(),
         }),
     )
     .await?;

@@ -74,6 +74,7 @@ class PdfIndexPayload(BaseModel):
 class AskPayload(BaseModel):
     question: str
     storage_dir: str
+    context: str = ""
 
 
 def main() -> None:
@@ -92,7 +93,7 @@ def main() -> None:
         "parse_schedule": lambda: parse_schedule(payload.get("weekday", 1), payload.get("text", ""), payload.get("subjects", [])),
         "parse_schedule_from_files": lambda: parse_schedule_from_files(payload.get("weekday", 1), payload.get("file_paths", []), payload.get("subjects", [])),
         "index_pdfs": lambda: index_pdfs(payload.get("file_paths", []), payload.get("storage_dir", "")),
-        "ask_ai": lambda: ask_ai_v2(payload.get("question", ""), payload.get("storage_dir", "")),
+        "ask_ai": lambda: ask_ai_v2(payload.get("question", ""), payload.get("storage_dir", ""), payload.get("context", "")),
         "generate_plan": lambda: generate_plan(payload.get("weekday"), payload.get("day_label", ""), payload.get("lessons", [])),
     }
     if action not in handlers:
@@ -118,7 +119,7 @@ def run_api() -> None:
 
     @app.post("/ask")
     async def api_ask(payload: AskPayload) -> Dict[str, Any]:
-        return ask_ai_v2(payload.question, payload.storage_dir)
+        return ask_ai_v2(payload.question, payload.storage_dir, payload.context)
 
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 
@@ -768,7 +769,7 @@ def index_pdfs(file_paths: List[str], storage_dir: str) -> Dict[str, Any]:
     return {"ok": True, "chunks": len(chunks)}
 
 
-def ask_ai_v2(question: str, storage_dir: str) -> Dict[str, Any]:
+def ask_ai_v2(question: str, storage_dir: str, extra_context: str = "") -> Dict[str, Any]:
     context_chunks = retrieve_chunks(question, storage_dir)
     sources = list(dict.fromkeys(chunk.title for chunk in context_chunks))
     context_lines = [f"[{chunk.title}, стр. {chunk.page}] {chunk.text}" for chunk in context_chunks]
@@ -806,6 +807,15 @@ def ask_ai_v2(question: str, storage_dir: str) -> Dict[str, Any]:
                 "Do not mention textbooks unless you really found a fragment."
             ),
         })
+    if extra_context.strip():
+        messages.append({
+            "role": "user",
+            "content": (
+                "Additional workspace context from the student's app. "
+                "Use it when the question refers to schedule, tasks, notes, or textbook list.\n\n"
+                f"{extra_context.strip()}"
+            ),
+        })
 
     answer = call_groq(TEXT_MODEL, messages, 0.25)
     if answer:
@@ -836,6 +846,20 @@ def ask_ai_v2(question: str, storage_dir: str) -> Dict[str, Any]:
             retry_answer = call_groq(TEXT_MODEL, retry_messages, 0.1)
             if retry_answer:
                 answer = retry_answer
+
+    if answer:
+        compact = answer.strip()
+        if compact and compact.count("?") >= 4 and not re.search(r"[А-Яа-яЁё]", compact):
+            if extra_context.strip():
+                context_preview = "\n".join(line for line in extra_context.splitlines()[:10] if line.strip())
+                answer = (
+                    "Я не смог получить чистый ответ от модели, но вижу контекст из приложения.\n\n"
+                    f"{context_preview}\n\n"
+                    "Если хочешь, уточни вопрос короче: например, "
+                    "'что у меня сегодня по расписанию' или 'какие задачи на сегодня'."
+                )
+            else:
+                answer = None
 
     if not answer:
         answer = (

@@ -9,6 +9,7 @@ interface AppState {
   subjects: string[]
   authSession: any | null
   settings: any
+  textbooks: any[]
   defaultWeekNumber: number
   defaultWeekday: number
 }
@@ -32,6 +33,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
           subjects: data.subjects || [],
           authSession: data.auth_session || null,
           settings: data.settings || {},
+          textbooks: data.textbooks || [],
           defaultWeekNumber: data.default_week_number || 1,
           defaultWeekday: data.default_weekday || 1,
         })
@@ -43,6 +45,56 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
     }
     init()
   }, [])
+
+  useEffect(() => {
+    async function pushStartupNotifications() {
+      if (!appState?.authSession) return
+      const email = appState.authSession.email || 'guest'
+      const taskKey = `nexara_tasks_v1:${email}`
+      const todayKey = `nexara_notify_tasks:${email}:${new Date().toISOString().slice(0, 10)}`
+      try {
+        const rawTasks = window.localStorage.getItem(taskKey)
+        const tasks = rawTasks ? JSON.parse(rawTasks) : []
+        const dueToday = Array.isArray(tasks)
+          ? tasks.filter((task: any) => !task.done && task.dueDate === new Date().toISOString().slice(0, 10))
+          : []
+        if (appState.settings?.hints_enabled && dueToday.length && !window.sessionStorage.getItem(todayKey)) {
+          await tauriInvoke('notify_status', {
+            title: 'Nexara',
+            body: `На сегодня есть ${dueToday.length} задач`,
+          })
+          window.sessionStorage.setItem(todayKey, '1')
+        }
+      } catch {}
+
+      try {
+        const notifyKey = `nexara_notify_schedule:${email}:${new Date().toISOString().slice(0, 10)}`
+        const lessons = await tauriInvoke<any[]>('get_schedule_for_weekday', {
+          weekNumber: appState.defaultWeekNumber,
+          weekday: appState.defaultWeekday,
+        })
+        if (!Array.isArray(lessons) || !lessons.length || window.sessionStorage.getItem(notifyKey)) return
+        const now = new Date()
+        const upcoming = lessons.find((lesson) => {
+          if (!lesson?.start_time) return false
+          const [hours, minutes] = String(lesson.start_time).split(':').map(Number)
+          const start = new Date()
+          start.setHours(hours || 0, minutes || 0, 0, 0)
+          const delta = start.getTime() - now.getTime()
+          return delta > 0 && delta <= 2 * 60 * 60 * 1000
+        })
+        if (appState.settings?.enable_3d && upcoming) {
+          await tauriInvoke('notify_status', {
+            title: 'Nexara',
+            body: `Скоро ${upcoming.subject} в ${upcoming.start_time}`,
+          })
+          window.sessionStorage.setItem(notifyKey, '1')
+        }
+      } catch {}
+    }
+
+    void pushStartupNotifications()
+  }, [appState])
 
   if (!isReady) {
     return (

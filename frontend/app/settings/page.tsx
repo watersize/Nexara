@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
 import { useTheme } from 'next-themes'
-import { Bell, Bot, Download, Lock, MoonStar, Pencil, Trash2, UserRound } from 'lucide-react'
+import { Bell, Bot, Download, Lock, MoonStar, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 function SettingsCard({
@@ -64,8 +64,8 @@ export default function SettingsPage() {
     : undefined
   const { resolvedTheme, setTheme } = useTheme()
 
-  const [hints, setHints] = useState(true)
-  const [enable3d, setEnable3d] = useState(true)
+  const [taskNotifications, setTaskNotifications] = useState(true)
+  const [scheduleNotifications, setScheduleNotifications] = useState(true)
   const [reminder, setReminder] = useState(18)
   const [nickname, setNickname] = useState('')
   const [isSavingProfile, setIsSavingProfile] = useState(false)
@@ -73,8 +73,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!appState) return
-    setHints(Boolean(appState.settings?.hints_enabled))
-    setEnable3d(Boolean(appState.settings?.enable_3d))
+    setTaskNotifications(Boolean(appState.settings?.hints_enabled))
+    setScheduleNotifications(Boolean(appState.settings?.enable_3d))
     setReminder(Number(appState.settings?.reminder_hours ?? 18))
     setNickname(appState.authSession?.display_name || '')
     if (appState.settings?.theme === 'theme-dark') {
@@ -86,14 +86,14 @@ export default function SettingsPage() {
 
   const version = useMemo(() => 'Nexara v0.3.0', [])
 
-  const saveSettings = async () => {
+  const saveSettings = async (themeOverride?: 'light' | 'dark') => {
     setIsSavingSettings(true)
     try {
       await tauriInvoke('save_settings', {
         settings: {
-          theme: resolvedTheme === 'light' ? 'theme-light' : 'theme-dark',
-          hints_enabled: hints,
-          enable_3d: enable3d,
+          theme: (themeOverride || resolvedTheme) === 'light' ? 'theme-light' : 'theme-dark',
+          hints_enabled: taskNotifications,
+          enable_3d: scheduleNotifications,
           reminder_hours: reminder,
           telegram_enabled: false,
           telegram_bot_token: '',
@@ -123,6 +123,12 @@ export default function SettingsPage() {
     } finally {
       setIsSavingProfile(false)
     }
+  }
+
+  const toggleTheme = async (checked: boolean) => {
+    const nextTheme = checked ? 'dark' : 'light'
+    setTheme(nextTheme)
+    await saveSettings(nextTheme)
   }
 
   return (
@@ -163,21 +169,21 @@ export default function SettingsPage() {
               icon={<MoonStar className="h-5 w-5" />}
               title="Тёмная тема"
               description={`Сейчас: ${resolvedTheme === 'light' ? 'светлая' : 'тёмная'}`}
-              trailing={<Switch checked={resolvedTheme !== 'light'} onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')} />}
+              trailing={<Switch checked={resolvedTheme !== 'light'} onCheckedChange={toggleTheme} />}
             />
             <div className="border-t border-white/6" />
             <SettingsRow
-              icon={<UserRound className="h-5 w-5" />}
-              title="Подсказки интерфейса"
-              description="Показывать вспомогательные подсказки внутри разделов"
-              trailing={<Switch checked={hints} onCheckedChange={setHints} />}
+              icon={<Bell className="h-5 w-5" />}
+              title="Напоминания о задачах"
+              description="Показывать уведомления о задачах на сегодня"
+              trailing={<Switch checked={taskNotifications} onCheckedChange={setTaskNotifications} />}
             />
             <div className="border-t border-white/6" />
             <SettingsRow
               icon={<Download className="h-5 w-5" />}
-              title="Анимации"
-              description="Плавные переходы и визуальные эффекты интерфейса"
-              trailing={<Switch checked={enable3d} onCheckedChange={setEnable3d} />}
+              title="Напоминания о расписании"
+              description="Показывать уведомление о ближайшем уроке"
+              trailing={<Switch checked={scheduleNotifications} onCheckedChange={setScheduleNotifications} />}
             />
           </SettingsCard>
 

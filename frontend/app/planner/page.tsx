@@ -68,6 +68,7 @@ export default function PlannerPage() {
   const user = appState?.authSession
     ? { displayName: appState.authSession.display_name, email: appState.authSession.email }
     : undefined
+  const storageKey = `${STORAGE_KEY}:${user?.email || 'guest'}`
 
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -82,18 +83,16 @@ export default function PlannerPage() {
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY)
-      setTasks(raw ? JSON.parse(raw) : seedTasks())
+      const raw = window.localStorage.getItem(storageKey)
+      setTasks(raw ? JSON.parse(raw) : [])
     } catch {
-      setTasks(seedTasks())
+      setTasks([])
     }
-  }, [])
+  }, [storageKey])
 
   useEffect(() => {
-    if (tasks.length) {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
-    }
-  }, [tasks])
+    window.localStorage.setItem(storageKey, JSON.stringify(tasks))
+  }, [storageKey, tasks])
 
   const grouped = useMemo(
     () => ({

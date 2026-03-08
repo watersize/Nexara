@@ -123,11 +123,12 @@ export default function HomePage() {
   const [notesCount, setNotesCount] = useState(0)
   const [tasksCount, setTasksCount] = useState(0)
   const [lessonsToday, setLessonsToday] = useState(0)
+  const accountKey = appState?.authSession?.email || 'guest'
 
   useEffect(() => {
-    setNotesCount(readCountFromStorage(NOTES_STORAGE_KEY))
-    setTasksCount(readCountFromStorage(TASKS_STORAGE_KEY))
-  }, [])
+    setNotesCount(readCountFromStorage(`${NOTES_STORAGE_KEY}:${accountKey}`))
+    setTasksCount(readCountFromStorage(`${TASKS_STORAGE_KEY}:${accountKey}`))
+  }, [accountKey])
 
   useEffect(() => {
     async function loadTodayLessons() {

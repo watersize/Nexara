@@ -125,6 +125,17 @@
   }
 }
 
+@layer utilities {
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Custom Nexara Animations */
 @keyframes float {
   0%, 100% { transform: translateY(0px); }

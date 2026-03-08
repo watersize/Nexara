@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Nexara",
-  "version": "0.2.1",
-  "identifier": "com.schoolmate.prototype",
+  "version": "0.3.0",
+  "identifier": "com.nexara.app",
   "build": {
-    "beforeDevCommand": "powershell -NoProfile -Command \"Set-Location ..; python -m http.server 1420 --directory web\"",
-    "beforeBuildCommand": "",
-    "devUrl": "http://127.0.0.1:1420",
-    "frontendDist": "../web"
+    "beforeDevCommand": "powershell -NoProfile -Command \"Set-Location ..\\frontend; npm run dev\"",
+    "beforeBuildCommand": "powershell -NoProfile -Command \"Set-Location ..\\frontend; npm run build\"",
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../frontend/out"
   },
   "app": {
     "withGlobalTauri": true,
