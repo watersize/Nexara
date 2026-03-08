@@ -318,7 +318,7 @@ function bindTelegram() {
 
 async function loadSchedule(weekday) {
   try {
-    showLoading("Синхронизация...");
+    showLoading("Синхронизация...", { overlay: false });
     const lessons = await invokeWithTimeout("get_schedule_for_weekday", {
       weekNumber: state.selectedWeekNumber,
       weekday,
@@ -344,7 +344,7 @@ async function saveSchedule() {
     return;
   }
   try {
-    showLoading("Анализ расписания...");
+    showLoading("Анализ расписания...", { overlay: false });
     const payload = {
       week_number: state.selectedWeekNumber,
       weekday: Number(document.getElementById("scheduleWeekdaySelect").value),
@@ -354,7 +354,7 @@ async function saveSchedule() {
       file_base64: state.scheduleFile ? await readFileAsDataUrl(state.scheduleFile) : "",
       mime_type: state.scheduleFile?.type || "",
     };
-    const result = await invokeWithTimeout("save_schedule", { payload }, 45000);
+    const result = await invokeWithTimeout("save_schedule", { payload }, 120000);
     resetScheduleImport();
     closeModal("scheduleModal");
     state.selectedWeekday = payload.weekday;
@@ -376,14 +376,14 @@ async function handleTextbookPick(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    showLoading("Загрузка учебника...");
+    showLoading("Загрузка учебника...", { overlay: false });
     const fileBase64 = await readFileAsDataUrl(file);
     const payload = {
       file_name: file.name,
       file_base64: fileBase64,
       mime_type: file.type || "application/pdf",
     };
-    const result = await invokeWithTimeout("upload_textbook", { payload }, 60000);
+    const result = await invokeWithTimeout("upload_textbook", { payload }, 120000);
     await refreshTextbooks();
     showToast(result.message || "Учебник добавлен");
   } catch (error) {
@@ -420,11 +420,11 @@ async function refreshTextbooks() {
 
 async function generatePlan() {
   try {
-    showLoading("Генерация плана...");
+    showLoading("Генерация плана...", { overlay: false });
     const result = await invokeWithTimeout(
       "generate_study_plan",
       { weekNumber: state.selectedWeekNumber, weekday: state.selectedWeekday },
-      45000,
+      90000,
     );
     document.getElementById("plannerOutput").textContent = result.plan || "План пока пуст.";
   } catch (error) {
@@ -443,8 +443,8 @@ async function submitChat(event) {
   state.chatMessages.push({ role: "user", text: question });
   renderChat();
   try {
-    showLoading("Nexara думает...");
-    const result = await invokeWithTimeout("ask_ai", { question }, 60000);
+    showLoading("Nexara думает...", { overlay: false });
+    const result = await invokeWithTimeout("ask_ai", { question }, 120000);
     const sources = Array.isArray(result.sources) && result.sources.length ? `\n\nИсточники: ${result.sources.join(", ")}` : "";
     state.chatMessages.push({ role: "assistant", text: `${result.answer || "Ответ пуст."}${sources}` });
     renderChat();
@@ -736,19 +736,13 @@ function sameLesson(left, right) {
     && left.notes === right.notes;
 }
 
-function showLoading(text = "Загрузка...") {
+function showLoading(text = "Загрузка...", options = {}) {
   const overlay = document.getElementById("loadingOverlay");
   const label = document.getElementById("loadingText");
+  const useOverlay = options.overlay !== false;
   loadingState.depth += 1;
-  clearTimeout(loadingState.watchdog);
-  loadingState.watchdog = setTimeout(() => {
-    console.error("loading timeout");
-    loadingState.depth = 0;
-    hideLoading(true);
-    showToast("Превышено время ожидания");
-  }, 10000);
   if (label) label.textContent = text;
-  overlay.hidden = false;
+  overlay.hidden = !useOverlay;
   setSyncStatus(text);
 }
 
@@ -761,8 +755,6 @@ function hideLoading(force = false) {
   }
   if (loadingState.depth <= 0) {
     loadingState.depth = 0;
-    clearTimeout(loadingState.watchdog);
-    loadingState.watchdog = null;
     overlay.hidden = true;
     setSyncStatus("Готово");
   }
