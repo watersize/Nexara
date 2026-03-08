@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from 'next'
 import { ThemeProvider } from '@/components/theme-provider'
+import { Toaster } from '@/components/ui/sonner'
 import { TauriProvider } from '@/lib/tauri-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Nexara - AI School Planner',
+  title: 'Nexara - School Planner',
   description: 'Умный школьный ассистент с расписанием, учебниками, AI-чатом и планировщиком.',
   generator: 'Nexara',
   icons: {
@@ -46,10 +47,13 @@ export default function RootLayout({
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
-          enableSystem
+          enableSystem={false}
           disableTransitionOnChange
         >
-          <TauriProvider>{children}</TauriProvider>
+          <TauriProvider>
+            {children}
+            <Toaster richColors position="top-right" />
+          </TauriProvider>
         </ThemeProvider>
       </body>
     </html>

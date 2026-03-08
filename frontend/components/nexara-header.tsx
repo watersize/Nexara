@@ -50,7 +50,7 @@ export function NexaraHeader({ showBackButton = false, title }: NexaraHeaderProp
               <NexaraLogo className="w-9 h-9 transition-transform group-hover:scale-105" />
               <div className="flex flex-col">
                 <span className="text-lg font-bold text-foreground tracking-tight">Nexara</span>
-                <span className="text-[10px] uppercase tracking-widest text-muted-foreground -mt-0.5">AI School Planner</span>
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground -mt-0.5">School Planner</span>
               </div>
             </Link>
           )}

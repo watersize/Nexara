@@ -32,7 +32,7 @@ async function mockInvoke(command: string, args?: Record<string, unknown>): Prom
         subjects: ['Математика', 'Физика', 'Информатика'],
         auth_session: null,
         settings: {
-          theme: 'theme-light',
+          theme: 'theme-dark',
           hints_enabled: true,
           enable_3d: true,
           reminder_hours: 18,

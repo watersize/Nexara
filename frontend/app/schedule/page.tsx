@@ -127,7 +127,7 @@ function DayButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'min-w-[74px] rounded-[20px] border px-3 py-3 text-left transition-all',
+        'min-w-0 w-full rounded-[20px] border px-3 py-3 text-left transition-all',
         selected
           ? 'border-primary/35 bg-primary shadow-[0_0_28px_-10px_rgba(92,113,255,0.9)]'
           : 'border-white/8 bg-white/[0.03] hover:border-white/16 hover:bg-white/[0.05]',
@@ -594,7 +594,7 @@ export default function SchedulePage() {
               </div>
             </div>
 
-            <div className="mt-5 flex gap-3 overflow-x-auto pb-1 scrollbar-none">
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
               {weekDates.map((date, index) => (
                 <DayButton
                   key={date.toISOString()}

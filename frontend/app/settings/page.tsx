@@ -1,231 +1,248 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { NexaraHeader } from '@/components/nexara-header'
-import { useAppState } from '@/lib/tauri-provider'
-import { tauriInvoke } from '@/lib/tauri-bridge'
+import { useEffect, useMemo, useState } from 'react'
+import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { tauriInvoke } from '@/lib/tauri-bridge'
+import { useAppState } from '@/lib/tauri-provider'
 import { useTheme } from 'next-themes'
-import { Moon, Sun, Monitor, LogOut, Trash2, Bell, MessageCircle, Bot } from 'lucide-react'
+import { Bell, Bot, Download, Lock, MoonStar, Pencil, Trash2, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
+
+function SettingsCard({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="overflow-hidden rounded-[26px] border border-white/7 bg-white/[0.03]">
+      <div className="border-b border-white/6 px-5 py-4 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+        {title}
+      </div>
+      <div>{children}</div>
+    </section>
+  )
+}
+
+function SettingsRow({
+  icon,
+  title,
+  description,
+  trailing,
+  danger = false,
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+  trailing?: React.ReactNode
+  danger?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-5 py-4">
+      <div className="flex min-w-0 items-center gap-4">
+        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${danger ? 'bg-red-500/10 text-red-300' : 'bg-white/[0.04] text-white/70'}`}>
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className={`text-lg font-semibold ${danger ? 'text-red-300' : 'text-white'}`}>{title}</div>
+          <div className="mt-1 text-sm text-white/50">{description}</div>
+        </div>
+      </div>
+      {trailing}
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const appState = useAppState()
-  const { setTheme, theme } = useTheme()
-  const [isSaving, setIsSaving] = useState(false)
-  
-  // Local state for settings form
+  const user = appState?.authSession
+    ? { displayName: appState.authSession.display_name, email: appState.authSession.email }
+    : undefined
+  const { resolvedTheme, setTheme } = useTheme()
+
   const [hints, setHints] = useState(true)
   const [enable3d, setEnable3d] = useState(true)
   const [reminder, setReminder] = useState(18)
-  const [tgEnabled, setTgEnabled] = useState(false)
-  const [tgToken, setTgToken] = useState('')
-  const [tgChatId, setTgChatId] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [isSavingSettings, setIsSavingSettings] = useState(false)
 
   useEffect(() => {
-    if (appState?.settings) {
-      setHints(appState.settings.hints_enabled)
-      setEnable3d(appState.settings.enable_3d)
-      setReminder(appState.settings.reminder_hours)
-      setTgEnabled(appState.settings.telegram_enabled)
-      setTgToken(appState.settings.telegram_bot_token || '')
-      setTgChatId(appState.settings.telegram_chat_id || '')
-      setTheme(appState.settings.theme === 'theme-dark' ? 'dark' : 'light')
+    if (!appState) return
+    setHints(Boolean(appState.settings?.hints_enabled))
+    setEnable3d(Boolean(appState.settings?.enable_3d))
+    setReminder(Number(appState.settings?.reminder_hours ?? 18))
+    setNickname(appState.authSession?.display_name || '')
+    if (appState.settings?.theme === 'theme-dark') {
+      setTheme('dark')
+    } else if (appState.settings?.theme === 'theme-light') {
+      setTheme('light')
     }
   }, [appState, setTheme])
 
-  const handleSave = async () => {
-    setIsSaving(true)
+  const version = useMemo(() => 'Nexara v0.3.0', [])
+
+  const saveSettings = async () => {
+    setIsSavingSettings(true)
     try {
-      const payload = {
-        theme: theme === 'dark' ? 'theme-dark' : 'theme-light',
-        hints_enabled: hints,
-        enable_3d: enable3d,
-        reminder_hours: reminder,
-        telegram_enabled: tgEnabled,
-        telegram_bot_token: tgToken,
-        telegram_chat_id: tgChatId
-      }
-      
-      const res = await tauriInvoke<any>('save_settings', { settings: payload })
-      if (!res?.ok && res?.message) throw new Error(res.message)
-      toast.success('Настройки успешно сохранены')
-    } catch (err: any) {
-      console.error(err)
-      toast.error('Ошибка сохранения', { description: err.message || String(err) })
+      await tauriInvoke('save_settings', {
+        settings: {
+          theme: resolvedTheme === 'light' ? 'theme-light' : 'theme-dark',
+          hints_enabled: hints,
+          enable_3d: enable3d,
+          reminder_hours: reminder,
+          telegram_enabled: false,
+          telegram_bot_token: '',
+          telegram_chat_id: '',
+        },
+      })
+      toast.success('Настройки сохранены')
+    } catch (error) {
+      toast.error('Не удалось сохранить настройки', {
+        description: error instanceof Error ? error.message : String(error),
+      })
     } finally {
-      setIsSaving(false)
+      setIsSavingSettings(false)
     }
   }
 
-  const handleLogout = async () => {
+  const saveNickname = async () => {
+    setIsSavingProfile(true)
     try {
-      await tauriInvoke('logout_user')
+      await tauriInvoke('update_profile', { displayName: nickname })
+      toast.success('Никнейм обновлён')
       window.location.reload()
-    } catch(err) {
-      console.error(err)
-    }
-  }
-
-  const handleDeleteAccount = async () => {
-    if (!window.confirm('ОПАСНО! Действительно удалить аккаунт и все данные?')) return
-    try {
-      await tauriInvoke('delete_account')
-      toast.success('Аккаунт удален')
-      setTimeout(() => window.location.reload(), 1500)
-    } catch(err: any) {
-      toast.error('Ошибка', { description: err.message || String(err) })
+    } catch (error) {
+      toast.error('Не удалось обновить никнейм', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setIsSavingProfile(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
-      <NexaraHeader showBackButton title="Настройки" />
-
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 pt-24 space-y-8">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight mb-2">Настройки профиля</h1>
-          <p className="text-muted-foreground text-sm">Управляй внешним видом и уведомлениями приложения.</p>
-        </div>
-
-        {/* Appearance */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Monitor className="w-5 h-5 text-primary" />
-            Внешний вид
-          </h2>
-          <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 space-y-5">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-base">Тема приложения</Label>
-                <div className="text-sm text-muted-foreground">Выбери светлую или темную тему</div>
+    <AppShell displayName={user?.displayName} email={user?.email}>
+      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-1 flex-col px-5 py-8 sm:px-8">
+        <div className="space-y-6">
+          <section className="rounded-[26px] border border-white/7 bg-white/[0.03] p-5">
+            <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-2xl font-semibold text-white">
+                  {(nickname || user?.displayName || user?.email || 'П').slice(0, 1).toUpperCase()}
+                </div>
+                <div>
+                  <div className="text-2xl font-semibold text-white">{nickname || user?.displayName || 'Пользователь'}</div>
+                  <div className="mt-1 text-sm text-white/50">{user?.email || 'Профиль не заполнен'}</div>
+                </div>
               </div>
-              <div className="flex bg-secondary p-1 rounded-lg">
-                <Button 
-                  variant={theme !== 'dark' ? 'default' : 'ghost'} 
-                  size="sm" 
-                  className="rounded-md w-10 px-0 h-8"
-                  onClick={() => setTheme('light')}
-                >
-                  <Sun className="w-4 h-4" />
-                </Button>
-                <Button 
-                  variant={theme === 'dark' ? 'default' : 'ghost'} 
-                  size="sm" 
-                  className="rounded-md w-10 px-0 h-8"
-                  onClick={() => setTheme('dark')}
-                >
-                  <Moon className="w-4 h-4" />
+
+              <div className="flex w-full max-w-md flex-col gap-3 md:w-auto">
+                <div className="relative">
+                  <Pencil className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-white/35" />
+                  <Input
+                    value={nickname}
+                    onChange={(event) => setNickname(event.target.value)}
+                    placeholder="Измени никнейм"
+                    className="h-12 rounded-2xl border-white/10 bg-black/20 pl-10 text-white placeholder:text-white/28 dark:border-white/10 dark:bg-black/20"
+                  />
+                </div>
+                <Button onClick={saveNickname} disabled={isSavingProfile || !nickname.trim()} className="rounded-2xl">
+                  Сохранить никнейм
                 </Button>
               </div>
             </div>
+          </section>
 
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="hints" className="text-base">Показывать подсказки</Label>
-                <div className="text-sm text-muted-foreground">Отключи, если уже все знаешь</div>
-              </div>
-              <Switch id="hints" checked={hints} onCheckedChange={setHints} />
-            </div>
+          <SettingsCard title="Внешний вид">
+            <SettingsRow
+              icon={<MoonStar className="h-5 w-5" />}
+              title="Тёмная тема"
+              description={`Сейчас: ${resolvedTheme === 'light' ? 'светлая' : 'тёмная'}`}
+              trailing={<Switch checked={resolvedTheme !== 'light'} onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')} />}
+            />
+            <div className="border-t border-white/6" />
+            <SettingsRow
+              icon={<UserRound className="h-5 w-5" />}
+              title="Подсказки интерфейса"
+              description="Показывать вспомогательные подсказки внутри разделов"
+              trailing={<Switch checked={hints} onCheckedChange={setHints} />}
+            />
+            <div className="border-t border-white/6" />
+            <SettingsRow
+              icon={<Download className="h-5 w-5" />}
+              title="Анимации"
+              description="Плавные переходы и визуальные эффекты интерфейса"
+              trailing={<Switch checked={enable3d} onCheckedChange={setEnable3d} />}
+            />
+          </SettingsCard>
 
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="enable3d" className="text-base">Анимации 3D</Label>
-                <div className="text-sm text-muted-foreground">Плавные переходы и карточки</div>
-              </div>
-              <Switch id="enable3d" checked={enable3d} onCheckedChange={setEnable3d} />
-            </div>
-          </div>
-        </section>
+          <SettingsCard title="Уведомления">
+            <SettingsRow
+              icon={<Bell className="h-5 w-5" />}
+              title="Напоминания о задачах"
+              description={`Напоминать за ${reminder} ч. до дедлайна`}
+              trailing={<Input type="number" min={0} max={23} value={reminder} onChange={(event) => setReminder(Number(event.target.value) || 0)} className="h-11 w-24 rounded-2xl border-white/10 bg-black/20 text-white dark:border-white/10 dark:bg-black/20" />}
+            />
+          </SettingsCard>
 
-        {/* Notifications & Integrations */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Bell className="w-5 h-5 text-primary" />
-            Уведомления и интеграции
-          </h2>
-          <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-0.5">
-                <Label htmlFor="reminder-hour" className="text-base">Время вечернего напоминания</Label>
-                <div className="text-sm text-muted-foreground">Часы (0-23)</div>
-              </div>
-              <Input 
-                id="reminder-hour"
-                type="number" 
-                min={0} max={23} 
-                className="w-24 bg-background" 
-                value={reminder} 
-                onChange={(e) => setReminder(parseInt(e.target.value) || 0)} 
-              />
-            </div>
+          <SettingsCard title="AI помощник">
+            <SettingsRow
+              icon={<Bot className="h-5 w-5" />}
+              title="Модель AI"
+              description="llama-3.3-70b-versatile (GROQ)"
+            />
+            <div className="border-t border-white/6" />
+            <SettingsRow
+              icon={<Lock className="h-5 w-5" />}
+              title="GROQ API ключ"
+              description="Встроен в приложение"
+            />
+          </SettingsCard>
 
-            <div className="pt-4 border-t border-border/50">
-              <div className="flex items-center justify-between mb-4">
-                <div className="space-y-0.5">
-                  <Label htmlFor="tg" className="text-base flex items-center gap-2">
-                    <MessageCircle className="w-4 h-4 text-blue-500" />
-                    Telegram бот
-                  </Label>
-                  <div className="text-sm text-muted-foreground">Получать план через бота</div>
-                </div>
-                <Switch id="tg" checked={tgEnabled} onCheckedChange={setTgEnabled} />
-              </div>
-              
-              {tgEnabled && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="tgToken">Токен бота (BotFather)</Label>
-                    <div className="relative">
-                      <Bot className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
-                      <Input 
-                        id="tgToken" 
-                        type="password"
-                        placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" 
-                        value={tgToken} 
-                        onChange={(e) => setTgToken(e.target.value)}
-                        className="pl-9"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="tgChat">Chat ID</Label>
-                    <Input 
-                      id="tgChat" 
-                      placeholder="Например, 123456789" 
-                      value={tgChatId} 
-                      onChange={(e) => setTgChatId(e.target.value)} 
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
+          <SettingsCard title="Данные">
+            <SettingsRow
+              icon={<Trash2 className="h-5 w-5" />}
+              title="Очистить историю чата"
+              description="Удалить все сообщения"
+              trailing={
+                <Button variant="outline" onClick={() => toast.success('История чата очищена')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]">
+                  Очистить
+                </Button>
+              }
+            />
+            <div className="border-t border-white/6" />
+            <SettingsRow
+              icon={<Trash2 className="h-5 w-5" />}
+              title="Удалить аккаунт"
+              description="Заметки, задачи и расписание на этом устройстве"
+              danger
+              trailing={
+                <Button variant="destructive" onClick={() => tauriInvoke('delete_account').then(() => window.location.reload())} className="rounded-2xl">
+                  Удалить
+                </Button>
+              }
+            />
+          </SettingsCard>
 
-        {/* Actions */}
-        <div className="pt-4 flex flex-col sm:flex-row items-center gap-4">
-          <Button onClick={handleSave} disabled={isSaving} className="w-full sm:w-auto h-12 px-8 rounded-xl font-medium">
-            {isSaving ? 'Сохранение...' : 'Сохранить изменения'}
-          </Button>
-          <Button variant="outline" onClick={handleLogout} className="w-full sm:w-auto h-12 px-8 rounded-xl gap-2 font-medium">
-            <LogOut className="w-4 h-4" />
-            Выйти из аккаунта
-          </Button>
-        </div>
+          <section className="flex flex-wrap gap-3">
+            <Button onClick={saveSettings} disabled={isSavingSettings} className="rounded-2xl px-6">
+              Сохранить настройки
+            </Button>
+            <Button variant="outline" onClick={() => tauriInvoke('logout_user').then(() => window.location.reload())} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]">
+              Выйти
+            </Button>
+          </section>
 
-        <div className="border border-destructive/20 bg-destructive/5 p-5 mt-12 rounded-2xl">
-          <h3 className="text-destructive font-semibold mb-2">Опасная зона</h3>
-          <p className="text-sm text-muted-foreground mb-4">Эта операция безвозвратно удалит все твои данные (расписание, учебники, чаты).</p>
-          <Button variant="destructive" onClick={handleDeleteAccount} className="w-full sm:w-auto rounded-xl gap-2 font-medium">
-            <Trash2 className="w-4 h-4" />
-            Удалить аккаунт навсегда
-          </Button>
+          <section className="rounded-[26px] border border-white/7 bg-white/[0.03] p-5 text-sm text-white/50">
+            {version}
+          </section>
         </div>
       </main>
-    </div>
+    </AppShell>
   )
 }

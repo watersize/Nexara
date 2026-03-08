@@ -158,6 +158,13 @@ struct DeleteScheduleLessonPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct SaveScheduleLessonsPayload {
+    week_number: i64,
+    weekday: i64,
+    lessons: Vec<ScheduleLesson>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct DeleteTextbookPayload {
     hash: String,
 }
@@ -170,7 +177,7 @@ struct SubjectProfile {
 
 fn default_settings() -> AppSettings {
     AppSettings {
-        theme: "theme-light".to_string(),
+        theme: "theme-dark".to_string(),
         hints_enabled: true,
         enable_3d: true,
         reminder_hours: 18,
@@ -1441,6 +1448,23 @@ async fn save_settings(settings: AppSettings, state: State<'_, AppState>) -> Res
 }
 
 #[tauri::command]
+async fn update_profile(display_name: String, state: State<'_, AppState>) -> Result<OperationResult, String> {
+    let mut session = load_auth_session(&state)
+        .await?
+        .ok_or_else(|| "Сначала войди в аккаунт.".to_string())?;
+    let normalized = display_name.trim();
+    if normalized.is_empty() {
+        return Err("Никнейм не может быть пустым.".to_string());
+    }
+    session.display_name = normalized.to_string();
+    save_auth_session(&state, Some(session)).await?;
+    Ok(OperationResult {
+        ok: true,
+        message: "Профиль обновлён".to_string(),
+    })
+}
+
+#[tauri::command]
 async fn delete_account(state: State<'_, AppState>) -> Result<OperationResult, String> {
     let session = load_auth_session(&state).await?;
     let Some(session) = session else {
@@ -1611,6 +1635,28 @@ async fn upload_textbook(
 }
 
 #[tauri::command]
+async fn save_schedule_lessons(
+    payload: SaveScheduleLessonsPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    save_schedule_cache(
+        &state,
+        user_key,
+        payload.week_number,
+        payload.weekday,
+        payload.lessons,
+    )
+    .await?;
+    notify_status("Nexara".to_string(), "Расписание сохранено".to_string(), state.clone()).await?;
+    Ok(OperationResult {
+        ok: true,
+        message: "Расписание успешно сохранено".to_string(),
+    })
+}
+
+#[tauri::command]
 async fn delete_textbook(
     payload: DeleteTextbookPayload,
     state: State<'_, AppState>,
@@ -1721,8 +1767,10 @@ fn main() {
             recover_password,
             logout_user,
             save_settings,
+            update_profile,
             delete_account,
             save_schedule,
+            save_schedule_lessons,
             delete_schedule_lesson,
             upload_textbook,
             delete_textbook,
