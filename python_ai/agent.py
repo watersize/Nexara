@@ -92,7 +92,7 @@ def main() -> None:
         "parse_schedule": lambda: parse_schedule(payload.get("weekday", 1), payload.get("text", ""), payload.get("subjects", [])),
         "parse_schedule_from_files": lambda: parse_schedule_from_files(payload.get("weekday", 1), payload.get("file_paths", []), payload.get("subjects", [])),
         "index_pdfs": lambda: index_pdfs(payload.get("file_paths", []), payload.get("storage_dir", "")),
-        "ask_ai": lambda: ask_ai(payload.get("question", ""), payload.get("storage_dir", "")),
+        "ask_ai": lambda: ask_ai_v2(payload.get("question", ""), payload.get("storage_dir", "")),
         "generate_plan": lambda: generate_plan(payload.get("weekday"), payload.get("day_label", ""), payload.get("lessons", [])),
     }
     if action not in handlers:
@@ -118,7 +118,7 @@ def run_api() -> None:
 
     @app.post("/ask")
     async def api_ask(payload: AskPayload) -> Dict[str, Any]:
-        return ask_ai(payload.question, payload.storage_dir)
+        return ask_ai_v2(payload.question, payload.storage_dir)
 
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 
@@ -766,6 +766,85 @@ def index_pdfs(file_paths: List[str], storage_dir: str) -> Dict[str, Any]:
     target.mkdir(parents=True, exist_ok=True)
     (target / "index.json").write_text(json.dumps(chunks, ensure_ascii=False), encoding="utf-8")
     return {"ok": True, "chunks": len(chunks)}
+
+
+def ask_ai_v2(question: str, storage_dir: str) -> Dict[str, Any]:
+    context_chunks = retrieve_chunks(question, storage_dir)
+    sources = list(dict.fromkeys(chunk.title for chunk in context_chunks))
+    context_lines = [f"[{chunk.title}, стр. {chunk.page}] {chunk.text}" for chunk in context_chunks]
+    found_phrase = ""
+    if context_chunks:
+        preview = context_chunks[0].text[:220].strip()
+        found_phrase = f"Найдено в учебнике [{context_chunks[0].title}]: {preview}"
+
+    messages = [{
+        "role": "system",
+        "content": (
+            "You are Nexara, a school study assistant. "
+            "Always answer in Russian using clear Cyrillic text. "
+            "If textbook context is provided, rely only on that context. "
+            "If no exact textbook fragment is found, say that honestly and then still answer helpfully."
+        ),
+    }]
+    if context_lines:
+        messages.append({
+            "role": "user",
+            "content": (
+                f"Question: {question}\n\n"
+                f"Textbook fragments:\n{chr(10).join(context_lines)}\n\n"
+                "Start the answer with the exact Russian phrase "
+                "'Найдено в учебнике [Название]: ...', then explain or solve the task in Russian."
+            ),
+        })
+    else:
+        messages.append({
+            "role": "user",
+            "content": (
+                f"Question: {question}\n\n"
+                "No exact textbook fragment was found. "
+                "Answer helpfully in Russian. "
+                "Do not mention textbooks unless you really found a fragment."
+            ),
+        })
+
+    answer = call_groq(TEXT_MODEL, messages, 0.25)
+    if answer:
+        compact = answer.strip()
+        if compact and compact.count("?") >= 4 and not re.search(r"[А-Яа-яЁё]", compact):
+            retry_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Nexara, a study assistant. "
+                        "Reply in plain Russian using Cyrillic letters. "
+                        "Do not replace letters with question marks."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Question: {question}\n\n"
+                        + (
+                            f"Textbook fragments:\n{chr(10).join(context_lines)}\n\n"
+                            if context_lines
+                            else ""
+                        )
+                        + "Give the final answer in Russian."
+                    ),
+                },
+            ]
+            retry_answer = call_groq(TEXT_MODEL, retry_messages, 0.1)
+            if retry_answer:
+                answer = retry_answer
+
+    if not answer:
+        answer = (
+            f"{found_phrase or 'Найдено в учебнике [не найдено]: точного фрагмента нет.'}\n\n"
+            "Не удалось получить ответ от модели. Проверь подключение и повтори запрос."
+        )
+    elif context_chunks and "Найдено в учебнике" not in answer:
+        answer = f"{found_phrase}\n\n{answer}"
+    return {"answer": answer, "sources": sources}
 
 
 def ask_ai(question: str, storage_dir: str) -> Dict[str, Any]:
