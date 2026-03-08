@@ -1201,9 +1201,39 @@ async fn run_python_agent(state: &AppState, action: &str, payload: Value) -> Res
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     if !output.status.success() {
-        return Err(if stderr.trim().is_empty() { stdout } else { stderr });
+        let raw_error = if stderr.trim().is_empty() { stdout } else { stderr };
+        return Err(clean_python_error(&raw_error));
     }
     serde_json::from_str::<Value>(&stdout).map_err(|err| format!("Ошибка чтения ответа Python: {err}"))
+}
+
+fn clean_python_error(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "Не удалось обработать ответ Python.".to_string();
+    }
+    let filtered = trimmed
+        .lines()
+        .filter(|line| {
+            let lowered = line.to_lowercase();
+            !lowered.contains("requestsdependencywarning")
+                && !lowered.contains("traceback (most recent call last)")
+                && !lowered.contains("[pyi-")
+                && !lowered.contains("failed to execute script")
+        })
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if let Some(last) = filtered.last() {
+        if let Some(value) = last.split(':').nth(1) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return value.to_string();
+            }
+        }
+        return (*last).to_string();
+    }
+    "Не удалось обработать изображение расписания.".to_string()
 }
 
 async fn rebuild_rag_index(state: &AppState, user_key: String) -> Result<(), String> {

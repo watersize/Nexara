@@ -17,6 +17,11 @@ import requests
 from PyPDF2 import PdfReader
 
 warnings.filterwarnings("ignore", message="Unable to find acceptable character detection dependency.*")
+try:
+    from requests.exceptions import RequestsDependencyWarning
+    warnings.simplefilter("ignore", RequestsDependencyWarning)
+except Exception:
+    pass
 
 try:
     from fastapi import FastAPI, HTTPException
@@ -177,15 +182,23 @@ def parse_schedule(weekday: int, text: str, subjects: List[str]) -> Dict[str, An
 
 
 def parse_schedule_from_files(weekday: int, file_paths: List[str], subjects: List[str]) -> Dict[str, Any]:
+    direct_lessons = []
     extracted = []
     for file_path in file_paths:
         path = Path(file_path)
         if not path.exists():
             continue
+        if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+            direct = parse_schedule_cards_from_image(path, subjects)
+            if direct:
+                direct_lessons.extend(direct)
+                continue
         try:
             extracted.append(extract_text_from_file(path))
         except Exception:
             continue
+    if direct_lessons:
+        return {"lessons": normalize_lessons(direct_lessons, subjects)}
     text = "\n".join(part.strip() for part in extracted if part.strip())
     if not text:
         raise ValueError("Не удалось распознать текст из файла или изображения.")
@@ -274,6 +287,43 @@ def ocr_with_vision(path: Path) -> str:
         vision_text = ""
     local_text = normalize_ocr_text(local_text)
     return vision_text if len(vision_text.strip()) >= len(local_text.strip()) else local_text
+
+
+def parse_schedule_cards_from_image(path: Path, subjects: List[str]) -> List[Dict[str, Any]]:
+    if not GROQ_API_KEY.strip():
+        return []
+    try:
+        mime, encoded = prepare_image_for_vision(path)
+    except Exception:
+        return []
+    prompt = (
+        "Extract lessons from this Russian school diary screenshot. "
+        "Return only JSON in the form {\"lessons\":[...]}. "
+        "Each lesson card starts with a header like '1 урок 08:30 - 09:15 каб. № 2'. "
+        "Ignore break rows, homework blocks, status badges, and navigation. "
+        "Do not merge repeated adjacent lessons. "
+        "Normalize subjects only to this list: " + ", ".join(subjects) + ". "
+        "Map 'Иностранный (английский) язык' to 'Английский язык'. "
+        "Map 'Основы безопасности и защиты Родины' to 'ОБЖ'. "
+        "Map 'Россия - мои горизонты', 'Разговоры о важном' and similar homeroom activities to 'Классный час'. "
+        "Teacher must be empty unless a real teacher name is clearly visible. "
+        "Keep room and exact lesson order."
+    )
+    messages = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
+        ],
+    }]
+    raw = call_groq(VISION_MODEL, messages, 0.0)
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(extract_json(raw))
+        return normalize_lessons(parsed.get("lessons", []), subjects)
+    except Exception:
+        return []
 
 
 def docx_text(path: Path) -> str:
@@ -374,7 +424,7 @@ def coarse_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
     lesson_duration = 45
     break_duration = 10
     for line in lines:
-        subject = best_subject_match(line, subjects)
+        subject = normalize_subject_label(line, subjects)
         if not subject:
             continue
         room_match = re.search(r"(?:каб(?:инет)?|аудитория|room)\.?\s*([0-9A-Za-zА-Яа-я/-]+)", line, re.I)
@@ -490,6 +540,10 @@ def is_ignored_schedule_line(line: str) -> bool:
 
 
 def detect_subject(block: List[str], subjects: List[str]) -> str:
+    for line in block:
+        subject = normalize_subject_label(line, subjects)
+        if subject:
+            return subject
     best_subject = ""
     best_score = 0.0
     for line in block:
@@ -503,6 +557,21 @@ def detect_subject(block: List[str], subjects: List[str]) -> str:
             best_score = score
             best_subject = subject
     return best_subject
+
+
+def normalize_subject_label(text: str, subjects: List[str]) -> str:
+    lowered = normalize_ocr_text(text).lower()
+    alias_map = [
+        (["иностранный (английский) язык", "иностранный английский язык", "иностранный язык", "английский язык"], "Английский язык"),
+        (["основы безопасности и защиты родины", "обж", "осзр"], "ОБЖ"),
+        (["россия - мои горизонты", "разговоры о важном", "мои горизонты", "классный час"], "Классный час"),
+        (["вероятность и статистика"], "Вероятность и статистика"),
+        (["физическая культура"], "Физическая культура"),
+    ]
+    for aliases, canonical in alias_map:
+        if any(alias in lowered for alias in aliases):
+            return canonical
+    return best_subject_match(text, subjects)
 
 
 def best_subject_match(text: str, subjects: List[str]) -> str:
@@ -544,12 +613,17 @@ def normalize_lessons(lessons: List[Dict[str, Any]], subjects: List[str]) -> Lis
         subject_raw = str(lesson.get("subject", "")).strip()
         subject = next((item for item in subjects if item.lower() == subject_raw.lower()), None)
         if subject is None:
+            subject = normalize_subject_label(subject_raw, subjects)
+        if not subject:
             subject = next((item for item in subjects if item.lower() in subject_raw.lower() or subject_raw.lower() in item.lower()), "Классный час")
         start_time = normalize_time(str(lesson.get("start_time", next_start)))
         end_time = normalize_time(str(lesson.get("end_time", add_minutes(start_time, 45))))
+        teacher = str(lesson.get("teacher", "")).strip()
+        if teacher and not looks_like_teacher_name(teacher):
+            teacher = ""
         normalized.append({
             "subject": subject,
-            "teacher": str(lesson.get("teacher", "")).strip(),
+            "teacher": teacher,
             "room": str(lesson.get("room", "")).strip(),
             "start_time": start_time,
             "end_time": end_time,
@@ -571,6 +645,18 @@ def merge_times_from_fallback(primary: List[Dict[str, Any]], fallback: List[Dict
         fallback_lesson = fallback[index]
         merged.append({**lesson, "start_time": fallback_lesson["start_time"], "end_time": fallback_lesson["end_time"]})
     return merged
+
+
+def looks_like_teacher_name(value: str) -> bool:
+    cleaned = value.strip()
+    if len(cleaned) < 6:
+        return False
+    if re.search(r"\b(домашнее|контрольная|не задано|внеурочная|дополнительное)\b", cleaned, re.I):
+        return False
+    return bool(
+        re.search(r"[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){1,2}", cleaned)
+        or re.search(r"[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.[А-ЯЁ]\.", cleaned)
+    )
 
 
 def normalize_time(value: str) -> str:
