@@ -311,6 +311,16 @@ body.with-3d .tilt-card:hover {
   color: rgba(255, 255, 255, 0.86);
 }
 
+.summary-card--interactive {
+  cursor: pointer;
+  user-select: none;
+}
+
+.summary-card--interactive:focus-visible {
+  outline: 3px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 3px;
+}
+
 .days-bar {
   display: flex;
   gap: 10px;

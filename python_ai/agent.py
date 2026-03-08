@@ -540,6 +540,9 @@ def is_ignored_schedule_line(line: str) -> bool:
 
 
 def detect_subject(block: List[str], subjects: List[str]) -> str:
+    candidate = extract_subject_candidate(block)
+    if candidate:
+        return normalize_subject_label(candidate, subjects)
     for line in block:
         subject = normalize_subject_label(line, subjects)
         if subject:
@@ -559,19 +562,43 @@ def detect_subject(block: List[str], subjects: List[str]) -> str:
     return best_subject
 
 
+def extract_subject_candidate(block: List[str]) -> str:
+    for line in block:
+        cleaned = normalize_schedule_line(line)
+        if not cleaned or is_lesson_header(cleaned) or is_break_line(cleaned) or is_ignored_schedule_line(cleaned):
+            continue
+        cleaned = re.sub(r"(?:каб(?:инет)?|аудитория|room)\.?\s*[0-9A-Za-zА-Яа-я/№-]+", "", cleaned, flags=re.I).strip(" ,.-")
+        if looks_like_teacher_name(cleaned):
+            continue
+        if len(cleaned) >= 3:
+            return cleaned
+    return ""
+
+
 def normalize_subject_label(text: str, subjects: List[str]) -> str:
     lowered = normalize_ocr_text(text).lower()
     alias_map = [
-        (["иностранный (английский) язык", "иностранный английский язык", "иностранный язык", "английский язык"], "Английский язык"),
-        (["основы безопасности и защиты родины", "обж", "осзр"], "ОБЖ"),
-        (["россия - мои горизонты", "разговоры о важном", "мои горизонты", "классный час"], "Классный час"),
+        (["иностранный (английский) язык", "иностранный английский язык", "английский язык"], "Английский язык"),
+        (["основы безопасности и защиты родины", "обзр", "обж", "осзр"], "ОБЖ"),
+        (["россия - мои горизонты", "разговоры о важном", "мои горизонты", "классный час", "внеурочная деятельность"], "Классный час"),
+        (["технология (труд)", "технология", "труд"], "Технология"),
+        (["история"], "История"),
+        (["литература"], "Литература"),
         (["вероятность и статистика"], "Вероятность и статистика"),
         (["физическая культура"], "Физическая культура"),
     ]
     for aliases, canonical in alias_map:
         if any(alias in lowered for alias in aliases):
             return canonical
-    return best_subject_match(text, subjects)
+    exact = next((subject for subject in subjects if subject.lower() == lowered.strip()), "")
+    if exact:
+        return exact
+    matched = best_subject_match(text, subjects)
+    if matched:
+        return matched
+    cleaned = re.sub(r"\s+", " ", normalize_ocr_text(text)).strip(" ,.-")
+    cleaned = re.sub(r"^(?:группа\s+)?", "", cleaned, flags=re.I)
+    return cleaned
 
 
 def best_subject_match(text: str, subjects: List[str]) -> str:
@@ -588,7 +615,7 @@ def best_subject_match(text: str, subjects: List[str]) -> str:
         if score > best_score:
             best_score = score
             best_subject = subject
-    return best_subject if best_score >= 0.55 else ""
+    return best_subject if best_score >= 0.82 else ""
 
 
 def extract_minutes(text: str, pattern: str) -> int | None:
@@ -619,6 +646,8 @@ def normalize_lessons(lessons: List[Dict[str, Any]], subjects: List[str]) -> Lis
         start_time = normalize_time(str(lesson.get("start_time", next_start)))
         end_time = normalize_time(str(lesson.get("end_time", add_minutes(start_time, 45))))
         teacher = str(lesson.get("teacher", "")).strip()
+        if teacher.lower() in {"учитель не указан", "не указан", "не указано", "unknown", "none"}:
+            teacher = ""
         if teacher and not looks_like_teacher_name(teacher):
             teacher = ""
         normalized.append({

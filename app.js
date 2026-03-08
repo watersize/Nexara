@@ -24,6 +24,8 @@ const state = {
   selectedSubject: "",
   schedule: [],
   textbooks: [],
+  summaryStepIndex: 0,
+  summarySteps: [],
   scheduleFile: null,
   chatMessages: [
     { role: "assistant", text: "Спроси про тему, домашнее задание или загруженный учебник." },
@@ -93,6 +95,13 @@ function bindUi() {
   });
   document.getElementById("bindTelegramBtn")?.addEventListener("click", bindTelegram);
   document.getElementById("deleteAccountBtn")?.addEventListener("click", deleteAccount);
+  document.getElementById("summaryStepCard")?.addEventListener("click", advanceSummaryStep);
+  document.getElementById("summaryStepCard")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      advanceSummaryStep();
+    }
+  });
   document.querySelectorAll("[data-close-modal]").forEach((button) => {
     button.addEventListener("click", () => closeModal(button.dataset.closeModal));
   });
@@ -528,7 +537,7 @@ function renderSchedule() {
           <h4>${escapeHtml(lesson.subject)}</h4>
           <span class="pill">${lesson.room ? `Каб. ${escapeHtml(lesson.room)}` : "Кабинет не указан"}</span>
         </div>
-        <p class="lesson-card__teacher">${lesson.teacher ? escapeHtml(lesson.teacher) : "Учитель не указан"}</p>
+        ${lesson.teacher ? `<p class="lesson-card__teacher">${escapeHtml(lesson.teacher)}</p>` : ""}
         <p class="lesson-card__notes">${lesson.notes ? escapeHtml(lesson.notes) : "Без заметок"}</p>
         ${materials.length ? `<p class="lesson-card__notes">Материалы: ${escapeHtml(materials.join(", "))}</p>` : ""}
       </div>
@@ -593,12 +602,64 @@ function updateSummary() {
   const visible = state.selectedSubject
     ? state.schedule.filter((lesson) => lesson.subject === state.selectedSubject)
     : state.schedule;
+  const steps = buildSummarySteps(visible);
+  state.summarySteps = steps;
+  if (state.summaryStepIndex >= steps.length) {
+    state.summaryStepIndex = 0;
+  }
+  const activeStep = steps[state.summaryStepIndex] || {
+    title: visible[0] ? `${visible[0].start_time} · ${visible[0].subject}` : "Свободное окно",
+    hint: "С чего начать подготовку прямо сейчас.",
+  };
   document.getElementById("summaryDay").textContent = `${state.selectedDayLabel}, неделя ${state.selectedWeekNumber}`;
   document.getElementById("summaryLessonCount").textContent = String(visible.length);
   document.getElementById("summaryMaterials").textContent = String(state.textbooks.length);
-  document.getElementById("summaryNextLesson").textContent = visible[0]
-    ? `${visible[0].start_time} · ${visible[0].subject}`
-    : "Свободное окно";
+  document.getElementById("summaryNextLesson").textContent = activeStep.title;
+  document.getElementById("summaryNextLessonHint").textContent = activeStep.hint;
+}
+
+function buildSummarySteps(visible) {
+  const steps = [];
+  if (!visible.length) {
+    steps.push({
+      title: "Добавь расписание",
+      hint: "Сначала загрузи день текстом, скрином или файлом.",
+    });
+  } else {
+    const firstLesson = visible[0];
+    steps.push({
+      title: `${firstLesson.start_time} · ${firstLesson.subject}`,
+      hint: "Проверь первый урок и начни с него.",
+    });
+  }
+  if (!state.textbooks.length) {
+    steps.push({
+      title: "Загрузи учебник",
+      hint: "Добавь PDF, чтобы AI мог искать задания в материалах.",
+    });
+  } else {
+    steps.push({
+      title: "Открой AI-чат",
+      hint: "Спроси по теме, домашнему заданию или номеру упражнения.",
+    });
+  }
+  steps.push({
+    title: "Все сделано",
+    hint: "Нажми ещё раз, чтобы пройти шаги заново.",
+  });
+  return steps;
+}
+
+function advanceSummaryStep() {
+  if (!state.summarySteps.length) {
+    updateSummary();
+    return;
+  }
+  state.summaryStepIndex += 1;
+  if (state.summaryStepIndex >= state.summarySteps.length) {
+    state.summaryStepIndex = 0;
+  }
+  updateSummary();
 }
 
 function applyAuthState() {
