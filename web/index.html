@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="nexara-backend-url" content="" />
     <meta name="nexara-telegram-bot" content="nexarapush_bot" />
-    <title>Nexara</title>
+    <title>veyo.ai</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body class="theme-light with-3d">
@@ -15,7 +15,7 @@
 
     <div class="auth-modal is-open" id="authModal">
       <div class="auth-sheet">
-        <span class="eyebrow">Nexara Auth</span>
+        <span class="eyebrow">veyo.ai Auth</span>
         <h2>Вход в учебное пространство</h2>
         <p class="auth-copy">Создай аккаунт или войди в существующий. Даже если письмо подтверждения временно не уходит, локальный вход останется доступен.</p>
 
@@ -46,8 +46,8 @@
         <div class="brand-card tilt-card">
           <div class="brand-mark"><span></span><i></i></div>
           <div>
-            <span class="eyebrow">School AI Planner</span>
-            <h1>Nexara</h1>
+            <span class="eyebrow">veyo.ai workspace</span>
+            <h1>veyo.ai</h1>
             <p class="brand-copy">Расписание, учебники, AI-чат и персональный ритм подготовки в одном рабочем месте.</p>
           </div>
         </div>
@@ -75,7 +75,7 @@
         <div class="hint-card tilt-card" id="hintCard">
           <span class="eyebrow">Подсказка</span>
           <strong id="hintTitle">Умный импорт</strong>
-          <p id="hintText">Вставь обычный текст, скриншот или PDF с расписанием. Nexara сама выделит уроки, кабинеты и время.</p>
+          <p id="hintText">Вставь обычный текст, скриншот или PDF с расписанием. veyo.ai сама выделит уроки, кабинеты и время.</p>
         </div>
       </aside>
 
@@ -84,7 +84,7 @@
           <div>
             <span class="eyebrow">Сегодняшний фокус</span>
             <h2>Расписание, чат и база материалов</h2>
-            <p>Главная версия Nexara уже умеет принимать пользователей, разбирать расписание через Groq, отвечать по учебникам и хранить данные локально.</p>
+            <p>Главная версия veyo.ai уже умеет принимать пользователей, разбирать расписание через Groq, отвечать по учебникам и хранить данные локально.</p>
           </div>
           <div class="hero-actions">
             <select id="subjectFilter">
@@ -109,10 +109,10 @@
             <strong id="summaryMaterials">0</strong>
             <p>Материалы в RAG-базе пользователя.</p>
           </article>
-          <article class="summary-card summary-card--accent tilt-card">
+          <article class="summary-card summary-card--accent summary-card--interactive tilt-card" id="summaryStepCard" role="button" tabindex="0">
             <span class="eyebrow">Следующий шаг</span>
             <strong id="summaryNextLesson">Свободное окно</strong>
-            <p>С чего начать подготовку прямо сейчас.</p>
+            <p id="summaryNextLessonHint">С чего начать подготовку прямо сейчас.</p>
           </article>
         </section>
 
@@ -154,7 +154,7 @@
             <section>
               <div class="panel-head">
                 <div>
-                  <span class="eyebrow">AI Planner</span>
+                  <span class="eyebrow">veyo.ai Planner</span>
                   <h3>План подготовки</h3>
                 </div>
                 <button class="ghost-btn" id="generatePlanBtn" type="button">Сгенерировать</button>
@@ -179,7 +179,7 @@
     <aside class="chat-drawer tilt-card" id="chatDrawer" aria-hidden="true">
       <div class="panel-head">
         <div>
-          <span class="eyebrow">Nexara AI</span>
+          <span class="eyebrow">veyo.ai AI</span>
           <h3>Чат-помощник</h3>
         </div>
         <div class="chat-actions">
@@ -203,7 +203,7 @@
           </div>
           <button class="ghost-btn" data-close-modal="scheduleModal" type="button">Закрыть</button>
         </div>
-        <p class="modal-copy">Вставь новое расписание, пришли скрин или напиши уточнение обычным текстом. Если день уже заполнен, Nexara сама поймёт, что нужно обновить.</p>
+        <p class="modal-copy">Вставь новое расписание, пришли скрин или напиши уточнение обычным текстом. Если день уже заполнен, veyo.ai сама поймёт, что нужно обновить.</p>
         <div class="form-grid form-grid--schedule">
           <select id="scheduleWeekdaySelect"></select>
           <textarea id="scheduleInput" rows="8" placeholder="Например: Английский язык — Гаршева Анна Геннадьевна, каб. 312. Или: 2 урок 09:25-10:10. Или вставь всё расписание целиком."></textarea>

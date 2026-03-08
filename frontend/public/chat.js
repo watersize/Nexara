@@ -1,5 +1,5 @@
 // ===== Chat App =====
-// Integrates with Nexara's Python AI backend (GROQ / Llama 3.3)
+// Integrates with veyo.ai's Python AI backend (GROQ / Llama 3.3)
 // In standalone HTML mode, uses a simulated response when no backend is available.
 
 const CHAT_KEY = 'nexara-chat-history';
@@ -94,7 +94,7 @@ class ChatApp {
     if (inputEl) { inputEl.value = ''; inputEl.style.height = 'auto'; }
 
     try {
-      // Try connecting to Nexara Python AI backend
+      // Try connecting to veyo.ai Python AI backend
       const response = await fetch(AI_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,7 +115,7 @@ class ChatApp {
       await new Promise(r => setTimeout(r, 1200 + Math.random() * 800));
       const simulated = SIMULATED_RESPONSES[Math.floor(Math.random() * SIMULATED_RESPONSES.length)];
       typingEl?.remove();
-      this.addMessage('ai', simulated + '\n\n_Это демо-ответ. Подключи Python-бэкенд Nexara для полного AI._');
+      this.addMessage('ai', simulated + '\n\n_Это демо-ответ. Подключи Python-бэкенд veyo.ai для полного AI._');
     }
 
     this.isLoading = false;

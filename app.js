@@ -33,7 +33,7 @@ const state = {
   hints: [
     {
       title: "Умный импорт",
-      text: "Вставь обычный текст, фото или PDF с расписанием. Nexara извлечет предметы, кабинеты и время.",
+      text: "Вставь обычный текст, фото или PDF с расписанием. veyo.ai извлечет предметы, кабинеты и время.",
     },
     {
       title: "Учебники в базе",
@@ -453,7 +453,7 @@ async function submitChat(event) {
   state.chatMessages.push({ role: "user", text: question });
   renderChat();
   try {
-    showLoading("Nexara думает...", { overlay: false });
+    showLoading("veyo.ai думает...", { overlay: false });
     const result = await invokeWithTimeout("ask_ai", { question }, 120000);
     const sources = Array.isArray(result.sources) && result.sources.length ? `\n\nИсточники: ${result.sources.join(", ")}` : "";
     state.chatMessages.push({ role: "assistant", text: `${result.answer || "Ответ пуст."}${sources}` });

@@ -24,6 +24,8 @@ const state = {
   selectedSubject: "",
   schedule: [],
   textbooks: [],
+  summaryStepIndex: 0,
+  summarySteps: [],
   scheduleFile: null,
   chatMessages: [
     { role: "assistant", text: "Спроси про тему, домашнее задание или загруженный учебник." },
@@ -31,7 +33,7 @@ const state = {
   hints: [
     {
       title: "Умный импорт",
-      text: "Вставь обычный текст, фото или PDF с расписанием. Nexara извлечет предметы, кабинеты и время.",
+      text: "Вставь обычный текст, фото или PDF с расписанием. veyo.ai извлечет предметы, кабинеты и время.",
     },
     {
       title: "Учебники в базе",
@@ -93,6 +95,13 @@ function bindUi() {
   });
   document.getElementById("bindTelegramBtn")?.addEventListener("click", bindTelegram);
   document.getElementById("deleteAccountBtn")?.addEventListener("click", deleteAccount);
+  document.getElementById("summaryStepCard")?.addEventListener("click", advanceSummaryStep);
+  document.getElementById("summaryStepCard")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      advanceSummaryStep();
+    }
+  });
   document.querySelectorAll("[data-close-modal]").forEach((button) => {
     button.addEventListener("click", () => closeModal(button.dataset.closeModal));
   });
@@ -362,6 +371,7 @@ async function saveSchedule() {
     renderDays();
     fillWeekdaySelect();
     await loadSchedule(payload.weekday);
+    mergeSubjectsFromSchedule();
     await syncScheduleToCloud(payload.weekday);
     showToast(result.message || "Расписание обновлено");
   } catch (error) {
@@ -443,7 +453,7 @@ async function submitChat(event) {
   state.chatMessages.push({ role: "user", text: question });
   renderChat();
   try {
-    showLoading("Nexara думает...", { overlay: false });
+    showLoading("veyo.ai думает...", { overlay: false });
     const result = await invokeWithTimeout("ask_ai", { question }, 120000);
     const sources = Array.isArray(result.sources) && result.sources.length ? `\n\nИсточники: ${result.sources.join(", ")}` : "";
     state.chatMessages.push({ role: "assistant", text: `${result.answer || "Ответ пуст."}${sources}` });
@@ -473,6 +483,18 @@ function fillSubjectSelect() {
     option.textContent = subject;
     select.appendChild(option);
   });
+}
+
+function mergeSubjectsFromSchedule() {
+  const merged = new Set(state.subjects || []);
+  (state.schedule || []).forEach((lesson) => {
+    const subject = String(lesson?.subject || "").trim();
+    if (subject) {
+      merged.add(subject);
+    }
+  });
+  state.subjects = Array.from(merged).sort((left, right) => left.localeCompare(right, "ru"));
+  fillSubjectSelect();
 }
 
 function fillWeekdaySelect() {
@@ -528,7 +550,7 @@ function renderSchedule() {
           <h4>${escapeHtml(lesson.subject)}</h4>
           <span class="pill">${lesson.room ? `Каб. ${escapeHtml(lesson.room)}` : "Кабинет не указан"}</span>
         </div>
-        <p class="lesson-card__teacher">${lesson.teacher ? escapeHtml(lesson.teacher) : "Учитель не указан"}</p>
+        ${lesson.teacher ? `<p class="lesson-card__teacher">${escapeHtml(lesson.teacher)}</p>` : ""}
         <p class="lesson-card__notes">${lesson.notes ? escapeHtml(lesson.notes) : "Без заметок"}</p>
         ${materials.length ? `<p class="lesson-card__notes">Материалы: ${escapeHtml(materials.join(", "))}</p>` : ""}
       </div>
@@ -593,12 +615,64 @@ function updateSummary() {
   const visible = state.selectedSubject
     ? state.schedule.filter((lesson) => lesson.subject === state.selectedSubject)
     : state.schedule;
+  const steps = buildSummarySteps(visible);
+  state.summarySteps = steps;
+  if (state.summaryStepIndex >= steps.length) {
+    state.summaryStepIndex = 0;
+  }
+  const activeStep = steps[state.summaryStepIndex] || {
+    title: visible[0] ? `${visible[0].start_time} · ${visible[0].subject}` : "Свободное окно",
+    hint: "С чего начать подготовку прямо сейчас.",
+  };
   document.getElementById("summaryDay").textContent = `${state.selectedDayLabel}, неделя ${state.selectedWeekNumber}`;
   document.getElementById("summaryLessonCount").textContent = String(visible.length);
   document.getElementById("summaryMaterials").textContent = String(state.textbooks.length);
-  document.getElementById("summaryNextLesson").textContent = visible[0]
-    ? `${visible[0].start_time} · ${visible[0].subject}`
-    : "Свободное окно";
+  document.getElementById("summaryNextLesson").textContent = activeStep.title;
+  document.getElementById("summaryNextLessonHint").textContent = activeStep.hint;
+}
+
+function buildSummarySteps(visible) {
+  const steps = [];
+  if (!visible.length) {
+    steps.push({
+      title: "Добавь расписание",
+      hint: "Сначала загрузи день текстом, скрином или файлом.",
+    });
+  } else {
+    const firstLesson = visible[0];
+    steps.push({
+      title: `${firstLesson.start_time} · ${firstLesson.subject}`,
+      hint: "Проверь первый урок и начни с него.",
+    });
+  }
+  if (!state.textbooks.length) {
+    steps.push({
+      title: "Загрузи учебник",
+      hint: "Добавь PDF, чтобы AI мог искать задания в материалах.",
+    });
+  } else {
+    steps.push({
+      title: "Открой AI-чат",
+      hint: "Спроси по теме, домашнему заданию или номеру упражнения.",
+    });
+  }
+  steps.push({
+    title: "Все сделано",
+    hint: "Нажми ещё раз, чтобы пройти шаги заново.",
+  });
+  return steps;
+}
+
+function advanceSummaryStep() {
+  if (!state.summarySteps.length) {
+    updateSummary();
+    return;
+  }
+  state.summaryStepIndex += 1;
+  if (state.summaryStepIndex >= state.summarySteps.length) {
+    state.summaryStepIndex = 0;
+  }
+  updateSummary();
 }
 
 function applyAuthState() {
@@ -960,11 +1034,7 @@ async function mockInvoke(command, args = {}) {
         { value: 6, label: "Суббота" },
         { value: 7, label: "Воскресенье" },
       ],
-      subjects: [
-        "Алгебра", "Геометрия", "Вероятность и статистика", "Русский язык", "Физика", "Химия",
-        "Биология", "Физическая культура", "География", "Информатика", "История",
-        "Обществознание", "Английский язык", "Литература", "Технология", "Классный час", "ОБЖ",
-      ],
+      subjects: [],
       default_weekday: 1,
       default_week_number: 12,
       auth_session: null,

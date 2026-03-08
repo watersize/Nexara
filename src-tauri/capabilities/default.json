@@ -1,13 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default desktop capability for SchoolMate.",
-  "windows": [
-    "main"
-  ],
+  "description": "Default desktop capability for veyo.ai.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:default",
-    "notification:default"
+    "notification:default",
+    "fs:default",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file"
   ]
 }
+

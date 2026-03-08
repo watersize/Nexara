@@ -9,5 +9,5 @@ if not "%exit_code%"=="0" (
   pause
   exit /b %exit_code%
 )
-echo Build finished. Open dist\Nexara\Nexara.exe
+echo Build finished. Open dist\veyo.ai\veyo.ai.exe
 pause

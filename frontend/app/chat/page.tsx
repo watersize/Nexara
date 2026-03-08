@@ -111,7 +111,7 @@ export default function ChatPage() {
               <div className="flex justify-start">
                 <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/75">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  Nexara думает...
+                  veyo.ai думает...
                 </div>
               </div>
             )}

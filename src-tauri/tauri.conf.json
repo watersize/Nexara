@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Nexara",
+  "productName": "veyo.ai",
   "version": "0.3.0",
-  "identifier": "com.nexara.app",
+  "identifier": "ai.veyo.desktop",
   "build": {
     "beforeDevCommand": "powershell -NoProfile -Command \"Set-Location ..\\frontend; npm run dev\"",
     "beforeBuildCommand": "powershell -NoProfile -Command \"Set-Location ..\\frontend; npm run build\"",
@@ -17,7 +17,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Nexara",
+        "title": "veyo.ai",
         "width": 1480,
         "height": 920,
         "minWidth": 1080,
@@ -34,10 +34,10 @@
     "icon": [
       "icons/icon.png"
     ],
-    "publisher": "Nexara",
+    "publisher": "veyo.ai",
     "category": "Education",
     "shortDescription": "AI-powered educational assistant",
-    "longDescription": "Nexara is a modern AI-powered educational assistant that helps students with scheduling, learning, and document management.",
+    "longDescription": "veyo.ai is a modern educational workspace with scheduling, notes, AI chat, and textbook tools.",
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",

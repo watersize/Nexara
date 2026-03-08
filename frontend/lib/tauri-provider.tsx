@@ -60,7 +60,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
           : []
         if (appState.settings?.hints_enabled && dueToday.length && !window.sessionStorage.getItem(todayKey)) {
           await tauriInvoke('notify_status', {
-            title: 'Nexara',
+            title: 'veyo.ai',
             body: `На сегодня есть ${dueToday.length} задач`,
           })
           window.sessionStorage.setItem(todayKey, '1')
@@ -85,7 +85,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
         })
         if (appState.settings?.enable_3d && upcoming) {
           await tauriInvoke('notify_status', {
-            title: 'Nexara',
+            title: 'veyo.ai',
             body: `Скоро ${upcoming.subject} в ${upcoming.start_time}`,
           })
           window.sessionStorage.setItem(notifyKey, '1')

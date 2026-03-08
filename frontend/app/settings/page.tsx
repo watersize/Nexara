@@ -84,7 +84,7 @@ export default function SettingsPage() {
     }
   }, [appState, setTheme])
 
-  const version = useMemo(() => 'Nexara v0.3.0', [])
+  const version = useMemo(() => 'veyo.ai v0.3.0', [])
 
   const saveSettings = async (themeOverride?: 'light' | 'dark') => {
     setIsSavingSettings(true)

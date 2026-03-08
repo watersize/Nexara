@@ -1,4 +1,4 @@
-﻿param(
+param(
   [switch]$SkipPythonInstall
 )
 
@@ -10,15 +10,15 @@ $pythonExe = Join-Path $venvDir 'Scripts\python.exe'
 $agentDist = Join-Path $root 'python_ai\dist\agent.exe'
 $resourceAgent = Join-Path $root 'src-tauri\resources\agent.exe'
 $releaseExe = Join-Path $root 'target\release\schoolmate-proto.exe'
-$portableDir = Join-Path $root 'dist\Nexara'
-$installerOut = Join-Path $root 'dist\Nexara-Setup-0.3.0.exe'
+$portableDir = Join-Path $root 'dist\veyo.ai'
+$installerOut = Join-Path $root 'dist\veyo.ai-Setup-0.3.0.exe'
 $secretDir = Join-Path $root '.secrets'
 $groqKeyFile = Join-Path $secretDir 'groq_key.txt'
 $portableGroqKey = Join-Path $portableDir 'groq.key'
 $installerWorkDir = Join-Path $root 'dist\installer-work'
-$installerZip = Join-Path $installerWorkDir 'Nexara-portable.zip'
+$installerZip = Join-Path $installerWorkDir 'veyo-ai-portable.zip'
 $installerScript = Join-Path $installerWorkDir 'install.cmd'
-$installerSed = Join-Path $installerWorkDir 'nexara-installer.sed'
+$installerSed = Join-Path $installerWorkDir 'veyo-ai-installer.sed'
 
 Write-Host 'Syncing frontend assets...'
 New-Item -ItemType Directory -Force $webDir | Out-Null
@@ -76,7 +76,7 @@ if (-not (Test-Path $releaseExe)) {
 
 Write-Host 'Preparing portable release folder...'
 New-Item -ItemType Directory -Force $portableDir | Out-Null
-Copy-Item $releaseExe (Join-Path $portableDir 'Nexara.exe') -Force
+Copy-Item $releaseExe (Join-Path $portableDir 'veyo.ai.exe') -Force
 Copy-Item $resourceAgent (Join-Path $portableDir 'agent.exe') -Force
 Copy-Item (Join-Path $root 'src-tauri\icons\icon.ico') (Join-Path $portableDir 'icon.ico') -Force
 Copy-Item (Join-Path $root 'src-tauri\icons\icon.png') (Join-Path $portableDir 'icon.png') -Force
@@ -95,12 +95,12 @@ Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $installerZ
 @'
 @echo off
 setlocal
-set "APPDIR=%LocalAppData%\Programs\Nexara"
+set "APPDIR=%LocalAppData%\Programs\veyo.ai"
 if exist "%APPDIR%" rmdir /S /Q "%APPDIR%"
 mkdir "%APPDIR%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%~dp0Nexara-portable.zip' -DestinationPath '%LOCALAPPDATA%\Programs\Nexara' -Force"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$shell = New-Object -ComObject WScript.Shell; $desktop = [Environment]::GetFolderPath('Desktop'); $programs = [Environment]::GetFolderPath('Programs'); $target = Join-Path $env:LOCALAPPDATA 'Programs\Nexara\Nexara.exe'; $workdir = Join-Path $env:LOCALAPPDATA 'Programs\Nexara'; $desktopShortcut = $shell.CreateShortcut((Join-Path $desktop 'Nexara.lnk')); $desktopShortcut.TargetPath = $target; $desktopShortcut.WorkingDirectory = $workdir; $desktopShortcut.IconLocation = $target; $desktopShortcut.Save(); $menuShortcut = $shell.CreateShortcut((Join-Path $programs 'Nexara.lnk')); $menuShortcut.TargetPath = $target; $menuShortcut.WorkingDirectory = $workdir; $menuShortcut.IconLocation = $target; $menuShortcut.Save()"
-start "" "%APPDIR%\Nexara.exe"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%~dp0veyo-ai-portable.zip' -DestinationPath '%LOCALAPPDATA%\Programs\veyo.ai' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$shell = New-Object -ComObject WScript.Shell; $desktop = [Environment]::GetFolderPath('Desktop'); $programs = [Environment]::GetFolderPath('Programs'); $target = Join-Path $env:LOCALAPPDATA 'Programs\veyo.ai\veyo.ai.exe'; $workdir = Join-Path $env:LOCALAPPDATA 'Programs\veyo.ai'; $desktopShortcut = $shell.CreateShortcut((Join-Path $desktop 'veyo.ai.lnk')); $desktopShortcut.TargetPath = $target; $desktopShortcut.WorkingDirectory = $workdir; $desktopShortcut.IconLocation = $target; $desktopShortcut.Save(); $menuShortcut = $shell.CreateShortcut((Join-Path $programs 'veyo.ai.lnk')); $menuShortcut.TargetPath = $target; $menuShortcut.WorkingDirectory = $workdir; $menuShortcut.IconLocation = $target; $menuShortcut.Save()"
+start "" "%APPDIR%\veyo.ai.exe"
 exit /b 0
 '@ | Set-Content $installerScript -Encoding ASCII
 
@@ -119,9 +119,9 @@ CAB_ResvCodeSigning=0
 RebootMode=N
 InstallPrompt=
 DisplayLicense=
-FinishMessage=Nexara v0.3.0 was installed successfully.
+FinishMessage=veyo.ai v0.3.0 was installed successfully.
 TargetName=$installerOut
-FriendlyName=Nexara v0.3.0 Setup
+FriendlyName=veyo.ai v0.3.0 Setup
 AppLaunched=install.cmd
 PostInstallCmd=<None>
 AdminQuietInstCmd=install.cmd
@@ -131,7 +131,7 @@ SourceFiles=SourceFiles
 SourceFiles0=$installerWorkDir\
 [SourceFiles0]
 install.cmd=
-Nexara-portable.zip=
+veyo-ai-portable.zip=
 "@ | Set-Content $installerSed -Encoding ASCII
 
 $iexpress = Join-Path $env:WINDIR 'System32\iexpress.exe'
@@ -146,7 +146,7 @@ Remove-Item $installerWorkDir -Recurse -Force
 
 Write-Host ''
 Write-Host 'Portable release is ready:' -ForegroundColor Green
-Write-Host (Join-Path $portableDir 'Nexara.exe')
+Write-Host (Join-Path $portableDir 'veyo.ai.exe')
 Write-Host ''
 Write-Host 'Installer is ready:' -ForegroundColor Green
 Write-Host $installerOut

@@ -5,9 +5,9 @@ import { TauriProvider } from '@/lib/tauri-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Nexara - School Planner',
+  title: 'veyo.ai',
   description: 'Умный школьный ассистент с расписанием, учебниками, AI-чатом и планировщиком.',
-  generator: 'Nexara',
+  generator: 'veyo.ai',
   icons: {
     icon: [
       {

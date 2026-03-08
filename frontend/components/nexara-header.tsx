@@ -13,6 +13,8 @@ interface NexaraHeaderProps {
 
 export function NexaraHeader({ showBackButton = false, title }: NexaraHeaderProps) {
   const [scrolled, setScrolled] = useState(false)
+  const { resolvedTheme } = useTheme()
+  const brandIcon = resolvedTheme === 'light' ? '/icon-light-32x32.png' : '/icon-dark-32x32.png'
 
   useEffect(() => {
     const handleScroll = () => {
@@ -39,18 +41,18 @@ export function NexaraHeader({ showBackButton = false, title }: NexaraHeaderProp
                 </svg>
               </Button>
               <div className="flex items-center gap-2.5">
-                <NexaraLogo className="w-8 h-8" />
+                <NexaraLogo className="w-8 h-8" src={brandIcon} />
                 <span className="font-semibold text-foreground hidden sm:block">
-                  {title || 'Nexara'}
+                  {title || 'veyo.ai'}
                 </span>
               </div>
             </Link>
           ) : (
             <Link href="/" className="flex items-center gap-2.5 group">
-              <NexaraLogo className="w-9 h-9 transition-transform group-hover:scale-105" />
+              <NexaraLogo className="w-9 h-9 transition-transform group-hover:scale-105" src={brandIcon} />
               <div className="flex flex-col">
-                <span className="text-lg font-bold text-foreground tracking-tight">Nexara</span>
-                <span className="text-[10px] uppercase tracking-widest text-muted-foreground -mt-0.5">School Planner</span>
+                <span className="text-lg font-bold text-foreground tracking-tight">veyo.ai</span>
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground -mt-0.5">study workspace</span>
               </div>
             </Link>
           )}
@@ -70,21 +72,10 @@ export function NexaraHeader({ showBackButton = false, title }: NexaraHeaderProp
   )
 }
 
-function NexaraLogo({ className }: { className?: string }) {
+function NexaraLogo({ className, src }: { className?: string; src: string }) {
   return (
-    <div className={cn('relative', className)}>
-      <svg viewBox="0 0 40 40" fill="none" className="w-full h-full">
-        <rect x="2" y="2" width="36" height="36" rx="10" className="fill-primary"/>
-        <path 
-          d="M12 28V12L20 22L28 12V28" 
-          stroke="currentColor" 
-          strokeWidth="2.5" 
-          strokeLinecap="round" 
-          strokeLinejoin="round"
-          className="text-primary-foreground"
-        />
-        <circle cx="20" cy="14" r="3" className="fill-accent"/>
-      </svg>
+    <div className={cn('relative overflow-hidden rounded-xl', className)}>
+      <img src={src} alt="veyo.ai" className="h-full w-full object-contain" />
     </div>
   )
 }

@@ -1,18 +1,25 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light">
+<html lang="ru" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Настройки - Nexara</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Настройки - veyo.ai</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-logo">
-        <div class="logo-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <span class="logo-text">Nexara</span>
+        <div class="logo-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="logo-text">veyo.ai</span>
       </div>
+
       <nav class="sidebar-nav">
         <a href="index.html" class="sidebar-item"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 9L12 2L21 9V20C21 20.55 20.55 21 20 21H4C3.45 21 3 20.55 3 20V9Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 22V12H15V22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Главная</span></a>
         <a href="notebook.html" class="sidebar-item"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 4H20C20.55 4 21 4.45 21 5V19C21 19.55 20.55 20 20 20H4C3.45 20 3 19.55 3 19V5C3 4.45 3.45 4 4 4Z" stroke="currentColor" stroke-width="1.5"/><path d="M7 4V20M11 9H17M11 13H17M11 17H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Блокнот</span></a>
@@ -21,299 +28,151 @@
         <a href="chat.html" class="sidebar-item"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3C7.03 3 3 6.58 3 11C3 13.39 4.19 15.53 6.12 16.96L5 21L9.46 19.31C10.28 19.53 11.13 19.65 12 19.65C16.97 19.65 21 16.07 21 11.65C21 7.23 16.97 3 12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>AI Чат</span></a>
         <a href="textbooks.html" class="sidebar-item"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 19.5C4 18.12 5.12 17 6.5 17H20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.5 2H20V22H6.5C5.12 22 4 20.88 4 19.5V4.5C4 3.12 5.12 2 6.5 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Учебники</span></a>
       </nav>
+
       <div class="sidebar-bottom">
         <a href="settings.html" class="sidebar-item active"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M12 1V3M12 21V23M23 12H21M3 12H1M20.07 3.93L18.66 5.34M5.34 18.66L3.93 20.07M20.07 20.07L18.66 18.66M5.34 5.34L3.93 3.93" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Настройки</span></a>
-        <button class="sidebar-item" id="theme-toggle-sidebar"><svg class="sun-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 2V4M10 16V18M18 10H16M4 10H2M15.66 4.34L14.24 5.76M5.76 14.24L4.34 15.66M15.66 15.66L14.24 14.24M5.76 5.76L4.34 4.34" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><svg class="moon-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M17.5 10.73C17.1 13.28 15.12 15.38 12.55 15.87C9.35 16.48 6.16 14.48 5.42 11.28C4.68 8.08 6.69 4.89 9.89 4.28C10.18 4.22 10.46 4.19 10.73 4.17C9.32 6.29 9.32 9.11 10.73 11.23C12.14 13.35 14.78 14.22 17.23 13.49C17.45 12.61 17.54 11.67 17.5 10.73Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Тема</span></button>
+        <button class="sidebar-item" id="theme-toggle-sidebar">
+          <svg class="sun-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 2V4M10 16V18M18 10H16M4 10H2M15.66 4.34L14.24 5.76M5.76 14.24L4.34 15.66M15.66 15.66L14.24 14.24M5.76 5.76L4.34 4.34" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <svg class="moon-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M17.5 10.73C17.1 13.28 15.12 15.38 12.55 15.87C9.35 16.48 6.16 14.48 5.42 11.28C4.68 8.08 6.69 4.89 9.89 4.28C10.18 4.22 10.46 4.19 10.73 4.17C9.32 6.29 9.32 9.11 10.73 11.23C12.14 13.35 14.78 14.22 17.23 13.49C17.45 12.61 17.54 11.67 17.5 10.73Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Тема</span>
+        </button>
       </div>
     </aside>
 
     <div class="app-body">
-      <header class="header">
-        <div class="header-left">
-          <a href="index.html" class="back-btn"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M13 16L7 10L13 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-          <span class="page-title">Настройки</span>
-        </div>
-        <div class="header-right">
-          <button class="icon-btn" id="theme-toggle"><svg class="sun-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 2V4M10 16V18M18 10H16M4 10H2M15.66 4.34L14.24 5.76M5.76 14.24L4.34 15.66M15.66 15.66L14.24 14.24M5.76 5.76L4.34 4.34" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><svg class="moon-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M17.5 10.73C17.1 13.28 15.12 15.38 12.55 15.87C9.35 16.48 6.16 14.48 5.42 11.28C4.68 8.08 6.69 4.89 9.89 4.28C10.18 4.22 10.46 4.19 10.73 4.17C9.32 6.29 9.32 9.11 10.73 11.23C12.14 13.35 14.78 14.22 17.23 13.49C17.45 12.61 17.54 11.67 17.5 10.73Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </div>
-      </header>
-
       <main class="main">
-        <!-- Profile -->
-        <div style="display:flex; align-items:center; gap:16px; padding:20px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-xl); margin-bottom:24px; animation: fadeInUp 0.35s ease;">
-          <div style="width:56px; height:56px; background:var(--accent-gradient); border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; font-size:1.4rem; font-weight:700; flex-shrink:0;" id="avatar-circle">
-            U
-          </div>
+        <div style="display:flex; align-items:center; gap:16px; padding:20px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-xl); margin-bottom:24px;">
+          <div style="width:56px; height:56px; background:var(--accent-gradient); border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; font-size:1.4rem; font-weight:700; flex-shrink:0;" id="avatar-circle">П</div>
           <div style="flex:1;">
             <div style="font-size:1rem; font-weight:700;" id="profile-name-display">Пользователь</div>
-            <div style="font-size:0.82rem; color:var(--text-secondary);" id="profile-class-display">Класс не указан</div>
+            <div style="font-size:0.82rem; color:var(--text-secondary);" id="profile-class-display">Профиль не заполнен</div>
           </div>
-          <button class="icon-btn" id="edit-profile-btn" title="Редактировать">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M11 4H4C3.45 4 3 4.45 3 5V20C3 20.55 3.45 21 4 21H19C19.55 21 20 20.55 20 19V12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.5 2.5C18.76 2.24 19.12 2.09 19.5 2.09C19.88 2.09 20.24 2.24 20.5 2.5C20.76 2.76 20.91 3.12 20.91 3.5C20.91 3.88 20.76 4.24 20.5 4.5L12 13L9 14L10 11L18.5 2.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </div>
-
-        <!-- Edit profile (hidden by default) -->
-        <div id="profile-edit-form" style="display:none; padding:16px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-xl); margin-bottom:24px; animation: fadeInUp 0.3s ease;">
-          <div style="font-size:0.88rem; font-weight:600; margin-bottom:12px;">Редактировать профиль</div>
-          <div class="form-group"><label class="form-label">Имя</label><input type="text" class="form-input" id="profile-name-input" placeholder="Твоё имя"></div>
-          <div class="form-group"><label class="form-label">Класс</label><input type="text" class="form-input" id="profile-class-input" placeholder="Например: 9А"></div>
-          <div class="form-group"><label class="form-label">Школа</label><input type="text" class="form-input" id="profile-school-input" placeholder="Название школы"></div>
-          <button class="btn-primary" id="save-profile-btn">Сохранить</button>
         </div>
 
         <div class="settings-sections">
-          <!-- Appearance -->
-          <div class="settings-section" style="animation: fadeInUp 0.35s 0.05s ease backwards;">
+          <div class="settings-section">
             <div class="settings-section-title">Внешний вид</div>
             <div class="settings-item" id="toggle-theme-item">
               <div class="settings-item-left">
-                <div class="settings-item-icon">
-                  <svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 2V4M10 16V18M18 10H16M4 10H2M15.66 4.34L14.24 5.76M5.76 14.24L4.34 15.66M15.66 15.66L14.24 14.24M5.76 5.76L4.34 4.34" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                </div>
+                <div class="settings-item-icon"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 2V4M10 16V18M18 10H16M4 10H2M15.66 4.34L14.24 5.76M5.76 14.24L4.34 15.66M15.66 15.66L14.24 14.24M5.76 5.76L4.34 4.34" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
                 <div>
-                  <div class="settings-item-title">Тёмная тема</div>
-                  <div class="settings-item-sub" id="theme-sub">Сейчас: светлая</div>
+                  <div class="settings-item-title">Темная тема</div>
+                  <div class="settings-item-sub" id="theme-sub">Сейчас: тёмная</div>
                 </div>
               </div>
-              <div class="toggle" id="theme-toggle-settings"></div>
+              <div class="toggle on" id="theme-toggle-settings"></div>
             </div>
             <div class="settings-item">
               <div class="settings-item-left">
-                <div class="settings-item-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/><path d="M12 3V12L17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                </div>
+                <div class="settings-item-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/><path d="M12 3V12L17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
                 <div>
                   <div class="settings-item-title">Версия приложения</div>
-                  <div class="settings-item-sub">Nexara v0.2.1</div>
+                  <div class="settings-item-sub">veyo.ai v0.3.0</div>
                 </div>
               </div>
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M7 4L13 10L7 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
           </div>
 
-          <!-- Notifications -->
-          <div class="settings-section" style="animation: fadeInUp 0.35s 0.1s ease backwards;">
+          <div class="settings-section">
             <div class="settings-section-title">Уведомления</div>
             <div class="settings-item">
               <div class="settings-item-left">
-                <div class="settings-item-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M18 8C18 6.4 17.37 4.86 16.24 3.73C15.12 2.6 13.59 2 12 2C10.41 2 8.88 2.6 7.76 3.73C6.63 4.86 6 6.4 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.73 21C13.55 21.3 13.3 21.55 13 21.73C12.7 21.91 12.35 22 12 22C11.65 22 11.3 21.91 11 21.73C10.7 21.55 10.45 21.3 10.27 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
+                <div class="settings-item-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M18 8C18 6.4 17.37 4.86 16.24 3.73C15.12 2.6 13.59 2 12 2C10.41 2 8.88 2.6 7.76 3.73C6.63 4.86 6 6.4 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.73 21C13.55 21.3 13.3 21.55 13 21.73C12.7 21.91 12.35 22 12 22C11.65 22 11.3 21.91 11 21.73C10.7 21.55 10.45 21.3 10.27 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                 <div>
                   <div class="settings-item-title">Напоминания о задачах</div>
                   <div class="settings-item-sub">Уведомления о дедлайнах</div>
                 </div>
               </div>
-              <div class="toggle on" id="notif-tasks-toggle"></div>
+              <div class="toggle on"></div>
             </div>
             <div class="settings-item">
               <div class="settings-item-left">
-                <div class="settings-item-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2V6M8 2V6M3 10H21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                </div>
+                <div class="settings-item-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2V6M8 2V6M3 10H21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
                 <div>
                   <div class="settings-item-title">Напоминания о расписании</div>
                   <div class="settings-item-sub">Уведомления перед уроком</div>
                 </div>
               </div>
-              <div class="toggle on" id="notif-schedule-toggle"></div>
+              <div class="toggle on"></div>
             </div>
           </div>
 
-          <!-- AI Settings -->
-          <div class="settings-section" style="animation: fadeInUp 0.35s 0.15s ease backwards;">
-            <div class="settings-section-title">AI Помощник</div>
+          <div class="settings-section">
+            <div class="settings-section-title">AI помощник</div>
             <div class="settings-item">
               <div class="settings-item-left">
-                <div class="settings-item-icon" style="background:rgba(168,85,247,0.1); color:#a855f7;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3C7.03 3 3 6.58 3 11C3 13.39 4.19 15.53 6.12 16.96L5 21L9.46 19.31C10.28 19.53 11.13 19.65 12 19.65C16.97 19.65 21 16.07 21 11.65C21 7.23 16.97 3 12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
+                <div class="settings-item-icon" style="background:rgba(168,85,247,0.1); color:#a855f7;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3C7.03 3 3 6.58 3 11C3 13.39 4.19 15.53 6.12 16.96L5 21L9.46 19.31C10.28 19.53 11.13 19.65 12 19.65C16.97 19.65 21 16.07 21 11.65C21 7.23 16.97 3 12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                 <div>
                   <div class="settings-item-title">Модель AI</div>
                   <div class="settings-item-sub">llama-3.3-70b-versatile (GROQ)</div>
                 </div>
               </div>
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M7 4L13 10L7 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <div class="settings-item">
               <div class="settings-item-left">
-                <div class="settings-item-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M7 11V7C7 4.24 9.24 2 12 2C14.76 2 17 4.24 17 7V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                </div>
+                <div class="settings-item-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M7 11V7C7 4.24 9.24 2 12 2C14.76 2 17 4.24 17 7V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
                 <div>
                   <div class="settings-item-title">GROQ API ключ</div>
                   <div class="settings-item-sub">Встроен в приложение</div>
                 </div>
               </div>
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M7 4L13 10L7 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-            <div class="settings-item">
-              <div class="settings-item-left">
-                <div class="settings-item-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10M12 15V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
-                <div>
-                  <div class="settings-item-title">Сохранять историю чата</div>
-                  <div class="settings-item-sub">Локальное хранение</div>
-                </div>
-              </div>
-              <div class="toggle on" id="chat-history-toggle"></div>
             </div>
           </div>
 
-          <!-- Data -->
-          <div class="settings-section" style="animation: fadeInUp 0.35s 0.2s ease backwards;">
+          <div class="settings-section">
             <div class="settings-section-title">Данные</div>
             <div class="settings-item" id="clear-chat-data">
               <div class="settings-item-left">
-                <div class="settings-item-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 6H21M8 6V4H16V6M19 6L18 20C18 21.1 17.1 22 16 22H8C6.9 22 6 21.1 6 20L5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
+                <div class="settings-item-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 6H21M8 6V4H16V6M19 6L18 20C18 21.1 17.1 22 16 22H8C6.9 22 6 21.1 6 20L5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                 <div>
                   <div class="settings-item-title">Очистить историю чата</div>
                   <div class="settings-item-sub">Удалить все сообщения</div>
                 </div>
               </div>
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M7 4L13 10L7 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <div class="settings-item" id="clear-all-data">
               <div class="settings-item-left">
-                <div class="settings-item-icon" style="background:rgba(239,68,68,0.1); color:#ef4444;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M10.29 3.86L1.82 18C1.64 18.31 1.55 18.66 1.55 19.01C1.55 20.12 2.44 21.01 3.55 21.01H20.45C21.56 21.01 22.45 20.12 22.45 19.01C22.45 18.66 22.36 18.31 22.18 18L13.71 3.86C13.53 3.55 13.28 3.3 12.97 3.12C12.36 2.78 11.63 2.78 11.03 3.12C10.72 3.3 10.47 3.55 10.29 3.86Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9V13M12 17H12.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                </div>
+                <div class="settings-item-icon" style="background:rgba(239,68,68,0.1); color:#ef4444;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M10.29 3.86L1.82 18C1.64 18.31 1.55 18.66 1.55 19.01C1.55 20.12 2.44 21.01 3.55 21.01H20.45C21.56 21.01 22.45 20.12 22.45 19.01C22.45 18.66 22.36 18.31 22.18 18L13.71 3.86C13.53 3.55 13.28 3.3 12.97 3.12C12.36 2.78 11.63 2.78 11.03 3.12C10.72 3.3 10.47 3.55 10.29 3.86Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9V13M12 17H12.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
                 <div>
                   <div class="settings-item-title" style="color:#ef4444;">Сбросить все данные</div>
                   <div class="settings-item-sub">Заметки, задачи, расписание</div>
                 </div>
               </div>
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M7 4L13 10L7 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-          </div>
-
-          <!-- About -->
-          <div class="settings-section" style="animation: fadeInUp 0.35s 0.25s ease backwards;">
-            <div class="settings-section-title">О приложении</div>
-            <div class="settings-item">
-              <div class="settings-item-left">
-                <div class="settings-item-icon" style="background:var(--accent-gradient); color:white;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
-                <div>
-                  <div class="settings-item-title">Nexara</div>
-                  <div class="settings-item-sub">AI School Assistant · v0.2.1</div>
-                </div>
-              </div>
-            </div>
-            <div class="settings-item" onclick="window.open('https://github.com/watersize/Nexara','_blank')">
-              <div class="settings-item-left">
-                <div class="settings-item-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 19C4 20.5 4 16.5 2 16M16 22V18.13C16.075 17.228 15.776 16.337 15.18 15.66C18.34 15.31 21.66 14.12 21.66 8.61C21.66 7.16 21.1 5.77 20.1 4.72C20.5567 3.44 20.5234 2.04 20.1 0.78C20.1 0.78 18.93 0.43 16 2.36C13.4289 1.65 10.7111 1.65 8.14 2.36C5.21 0.43 4.04 0.78 4.04 0.78C3.6166 2.04 3.5833 3.44 4.04 4.72C3.02 5.78 2.45 7.18 2.46 8.64C2.46 14.11 5.78 15.3 8.94 15.69C8.35 16.36 8.05 17.24 8.12 18.13V22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
-                <div>
-                  <div class="settings-item-title">GitHub репозиторий</div>
-                  <div class="settings-item-sub">github.com/watersize/Nexara</div>
-                </div>
-              </div>
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M7 4L13 10L7 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
           </div>
         </div>
       </main>
-
-      <nav class="mobile-nav">
-        <a href="index.html" class="nav-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 9L12 2L21 9V20C21 20.55 20.55 21 20 21H4C3.45 21 3 20.55 3 20V9Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 22V12H15V22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Главная</span></a>
-        <a href="notebook.html" class="nav-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 4H20C20.55 4 21 4.45 21 5V19C21 19.55 20.55 20 20 20H4C3.45 20 3 19.55 3 19V5C3 4.45 3.45 4 4 4Z" stroke="currentColor" stroke-width="1.5"/><path d="M7 4V20M11 9H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Блокнот</span></a>
-        <a href="planner.html" class="nav-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 11L12 14L22 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 12V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V5C3 3.9 3.9 3 5 3H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Задачи</span></a>
-        <a href="schedule.html" class="nav-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2V6M8 2V6M3 10H21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Расписание</span></a>
-        <a href="chat.html" class="nav-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3C7.03 3 3 6.58 3 11C3 13.39 4.19 15.53 6.12 16.96L5 21L9.46 19.31C10.28 19.53 11.13 19.65 12 19.65C16.97 19.65 21 16.07 21 11.65C21 7.23 16.97 3 12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>AI Чат</span></a>
-      </nav>
     </div>
   </div>
 
   <script src="app.js"></script>
   <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const PROFILE_KEY = 'nexara-profile';
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('toggle-theme-item')?.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('veyo.ai-theme', next);
+        document.getElementById('theme-toggle-settings').classList.toggle('on', next === 'dark');
+        document.getElementById('theme-sub').textContent = `Сейчас: ${next === 'dark' ? 'тёмная' : 'светлая'}`;
+      });
 
-    function loadProfile() {
-      try { return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {}; } catch { return {}; }
-    }
-    function saveProfile(p) { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); }
+      document.querySelectorAll('.toggle').forEach((item) => {
+        if (item.id === 'theme-toggle-settings') return;
+        item.addEventListener('click', () => item.classList.toggle('on'));
+      });
 
-    const profile = loadProfile();
+      document.getElementById('clear-chat-data')?.addEventListener('click', () => {
+        localStorage.removeItem('veyo.ai-chat-history');
+        alert('История чата очищена.');
+      });
 
-    function updateProfileDisplay() {
-      const p = loadProfile();
-      const name = p.name || 'Пользователь';
-      document.getElementById('profile-name-display').textContent = name;
-      document.getElementById('avatar-circle').textContent = name[0]?.toUpperCase() || 'U';
-      document.getElementById('profile-class-display').textContent = [p.class, p.school].filter(Boolean).join(' · ') || 'Профиль не заполнен';
-    }
-
-    updateProfileDisplay();
-
-    document.getElementById('edit-profile-btn')?.addEventListener('click', () => {
-      const form = document.getElementById('profile-edit-form');
-      const p = loadProfile();
-      document.getElementById('profile-name-input').value = p.name || '';
-      document.getElementById('profile-class-input').value = p.class || '';
-      document.getElementById('profile-school-input').value = p.school || '';
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+      document.getElementById('clear-all-data')?.addEventListener('click', () => {
+        if (!confirm('Удалить локальные данные приложения?')) return;
+        ['veyo.ai-chat-history', 'veyo.ai-notes', 'veyo.ai-notes-v1', 'veyo.ai-schedule-v2', 'veyo.ai-tasks-v1'].forEach((key) => localStorage.removeItem(key));
+        alert('Локальные данные удалены.');
+      });
     });
-
-    document.getElementById('save-profile-btn')?.addEventListener('click', () => {
-      const p = {
-        name: document.getElementById('profile-name-input').value.trim(),
-        class: document.getElementById('profile-class-input').value.trim(),
-        school: document.getElementById('profile-school-input').value.trim(),
-      };
-      saveProfile(p);
-      updateProfileDisplay();
-      document.getElementById('profile-edit-form').style.display = 'none';
-    });
-
-    // Theme toggle in settings
-    const themeToggle = document.getElementById('theme-toggle-settings');
-    function syncThemeToggle() {
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      if (isDark) themeToggle?.classList.add('on'); else themeToggle?.classList.remove('on');
-      const sub = document.getElementById('theme-sub');
-      if (sub) sub.textContent = isDark ? 'Сейчас: тёмная' : 'Сейчас: светлая';
-    }
-    syncThemeToggle();
-
-    document.getElementById('toggle-theme-item')?.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme');
-      const next = current === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('nexara-theme', next);
-      syncThemeToggle();
-    });
-
-    // Generic toggle switches
-    document.querySelectorAll('.toggle').forEach(t => {
-      if (t.id === 'theme-toggle-settings') return;
-      t.addEventListener('click', () => t.classList.toggle('on'));
-    });
-
-    // Clear chat history
-    document.getElementById('clear-chat-data')?.addEventListener('click', () => {
-      if (confirm('Удалить историю чата?')) {
-        localStorage.removeItem('nexara-chat-history');
-        alert('История чата удалена.');
-      }
-    });
-
-    // Clear all data
-    document.getElementById('clear-all-data')?.addEventListener('click', () => {
-      if (confirm('Сбросить ВСЕ данные приложения? Это нельзя отменить.')) {
-        ['nexara-notes','nexara-tasks','nexara-schedule','nexara-chat-history','nexara-textbooks'].forEach(k => localStorage.removeItem(k));
-        alert('Все данные удалены.');
-        location.reload();
-      }
-    });
-  });
   </script>
 </body>
 </html>

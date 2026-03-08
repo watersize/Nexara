@@ -1,4 +1,4 @@
-﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::path::{Path, PathBuf};
 use std::collections::{BTreeSet, HashMap};
 
@@ -356,7 +356,7 @@ fn build_local_session(email: &str) -> AuthSession {
     AuthSession {
         user_id: format!("local-{}", &digest[..16]),
         email: email.to_string(),
-        display_name: email.split('@').next().unwrap_or("Nexara User").to_string(),
+        display_name: email.split('@').next().unwrap_or("veyo.ai User").to_string(),
         access_token: format!("local-token-{}", &digest[..24]),
         refresh_token: format!("local-refresh-{}", &digest[24..48]),
     }
@@ -469,7 +469,7 @@ fn ensure_state(app: &AppHandle) -> Result<AppState, String> {
     std::fs::create_dir_all(&imports_dir).map_err(|err| err.to_string())?;
     std::fs::create_dir_all(&materials_dir).map_err(|err| err.to_string())?;
     std::fs::create_dir_all(&rag_dir).map_err(|err| err.to_string())?;
-    let db_path = app_dir.join("nexara.sqlite");
+    let db_path = app_dir.join("veyo-ai.sqlite");
     initialize_database(&db_path)?;
 
     let workspace = project_root()?;
@@ -1204,7 +1204,7 @@ fn map_supabase_session(response: SupabaseAuthResponse) -> Result<AuthResponse, 
         session: Some(AuthSession {
             user_id: user.id,
             email: email.clone(),
-            display_name: email.split('@').next().unwrap_or("Nexara User").to_string(),
+            display_name: email.split('@').next().unwrap_or("veyo.ai User").to_string(),
             access_token,
             refresh_token,
         }),
@@ -1568,7 +1568,7 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
     .await?;
     remember_subject_profiles(&state, user_key.clone(), &lessons).await?;
     remember_subject_profiles(&state, user_key, &overrides).await?;
-    notify_status("Nexara".to_string(), "Расписание обновлено".to_string(), state.clone()).await?;
+    notify_status("veyo.ai".to_string(), "Расписание обновлено".to_string(), state.clone()).await?;
     Ok(OperationResult {
         ok: true,
         message: if has_schedule_input {
@@ -1662,7 +1662,7 @@ async fn save_schedule_lessons(
         payload.lessons,
     )
     .await?;
-    notify_status("Nexara".to_string(), "Расписание сохранено".to_string(), state.clone()).await?;
+    notify_status("veyo.ai".to_string(), "Расписание сохранено".to_string(), state.clone()).await?;
     Ok(OperationResult {
         ok: true,
         message: "Расписание успешно сохранено".to_string(),

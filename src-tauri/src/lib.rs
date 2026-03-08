@@ -97,6 +97,19 @@ struct MaterialRecord {
     created_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct TextbookPreviewPayload {
+    hash: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TextbookPreviewResponse {
+    kind: String,
+    file_name: String,
+    mime_type: String,
+    content: String,
+}
+
 #[derive(Debug, Serialize)]
 struct WeekdayOption {
     value: i64,
@@ -179,6 +192,13 @@ struct DeleteScheduleLessonPayload {
     week_number: i64,
     weekday: i64,
     lesson: ScheduleLesson,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SaveScheduleLessonsPayload {
+    week_number: i64,
+    weekday: i64,
+    lessons: Vec<ScheduleLesson>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -360,7 +380,7 @@ fn build_local_session(email: &str) -> AuthSession {
     AuthSession {
         user_id: format!("local-{}", &digest[..16]),
         email: email.to_string(),
-        display_name: email.split('@').next().unwrap_or("Nexara User").to_string(),
+        display_name: email.split('@').next().unwrap_or("veyo.ai User").to_string(),
         access_token: format!("local-token-{}", &digest[..24]),
         refresh_token: format!("local-refresh-{}", &digest[24..48]),
     }
@@ -474,7 +494,7 @@ fn ensure_state(app: &AppHandle) -> Result<AppState, String> {
     std::fs::create_dir_all(&imports_dir).map_err(|err| err.to_string())?;
     std::fs::create_dir_all(&materials_dir).map_err(|err| err.to_string())?;
     std::fs::create_dir_all(&rag_dir).map_err(|err| err.to_string())?;
-    let db_path = app_dir.join("nexara.sqlite");
+    let db_path = app_dir.join("veyo.ai.sqlite");
     initialize_database(&db_path)?;
 
     let workspace = project_root()?;
@@ -1210,7 +1230,7 @@ fn map_supabase_session(response: SupabaseAuthResponse) -> Result<AuthResponse, 
         session: Some(AuthSession {
             user_id: user.id,
             email: email.clone(),
-            display_name: email.split('@').next().unwrap_or("Nexara User").to_string(),
+            display_name: email.split('@').next().unwrap_or("veyo.ai User").to_string(),
             access_token,
             refresh_token,
         }),
@@ -1540,7 +1560,7 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
     .await?;
     remember_subject_profiles(&state, user_key.clone(), &lessons).await?;
     remember_subject_profiles(&state, user_key, &overrides).await?;
-    notify_status("Nexara".to_string(), "Расписание обновлено".to_string(), state.clone()).await?;
+    notify_status("veyo.ai".to_string(), "Расписание обновлено".to_string(), state.clone()).await?;
     Ok(OperationResult {
         ok: true,
         message: if has_schedule_input {
@@ -1548,6 +1568,28 @@ async fn save_schedule(payload: SaveSchedulePayload, state: State<'_, AppState>)
         } else {
             "Уточнения по предметам сохранены".to_string()
         },
+    })
+}
+
+#[tauri::command]
+async fn save_schedule_lessons(
+    payload: SaveScheduleLessonsPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    save_schedule_cache(
+        &state,
+        user_key,
+        payload.week_number,
+        payload.weekday,
+        payload.lessons,
+    )
+    .await?;
+    notify_status("veyo.ai".to_string(), "Расписание сохранено".to_string(), state.clone()).await?;
+    Ok(OperationResult {
+        ok: true,
+        message: "Расписание успешно сохранено".to_string(),
     })
 }
 
@@ -1644,6 +1686,51 @@ async fn list_textbooks_command(state: State<'_, AppState>) -> Result<Vec<Materi
 }
 
 #[tauri::command]
+async fn get_textbook_preview(
+    payload: TextbookPreviewPayload,
+    state: State<'_, AppState>,
+) -> Result<TextbookPreviewResponse, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let materials = list_materials(&state, user_key).await?;
+    let material = materials
+        .into_iter()
+        .find(|item| item.hash == payload.hash)
+        .ok_or_else(|| "Учебник не найден".to_string())?;
+
+    let bytes = tokio::fs::read(&material.stored_path)
+        .await
+        .map_err(|err| err.to_string())?;
+    let lower_name = material.file_name.to_lowercase();
+    let lower_mime = material.mime_type.to_lowercase();
+
+    if lower_mime.contains("pdf") || lower_name.ends_with(".pdf") {
+        return Ok(TextbookPreviewResponse {
+            kind: "pdf".into(),
+            file_name: material.file_name,
+            mime_type: material.mime_type,
+            content: BASE64.encode(bytes),
+        });
+    }
+
+    if lower_mime.contains("text") || lower_name.ends_with(".txt") {
+        return Ok(TextbookPreviewResponse {
+            kind: "text".into(),
+            file_name: material.file_name,
+            mime_type: material.mime_type,
+            content: String::from_utf8_lossy(&bytes).to_string(),
+        });
+    }
+
+    Ok(TextbookPreviewResponse {
+        kind: "unsupported".into(),
+        file_name: material.file_name,
+        mime_type: material.mime_type,
+        content: "Предпросмотр доступен только для PDF и TXT файлов.".into(),
+    })
+}
+
+#[tauri::command]
 async fn get_schedule_for_weekday(
     week_number: i64,
     weekday: i64,
@@ -1679,7 +1766,7 @@ async fn ask_ai(question: String, state: State<'_, AppState>) -> Result<ChatResp
     #[cfg(mobile)]
     {
         let _ = user_key;
-        let system = "Ты умный школьный помощник Nexara. Отвечай коротко, чётко, на русском языке. Если вопрос учебный — дай понятное объяснение с примерами.";
+        let system = "Ты умный школьный помощник veyo.ai. Отвечай коротко, чётко, на русском языке. Если вопрос учебный — дай понятное объяснение с примерами.";
         let answer = call_groq(&state, system, &question, "llama-3.1-8b-instant").await?;
         Ok(ChatResponse { answer, sources: Vec::new() })
     }
@@ -1770,10 +1857,12 @@ pub fn run() {
             save_settings,
             delete_account,
             save_schedule,
+            save_schedule_lessons,
             delete_schedule_lesson,
             upload_textbook,
             delete_textbook,
             list_textbooks_command,
+            get_textbook_preview,
             get_schedule_for_weekday,
             ask_ai,
             generate_study_plan,

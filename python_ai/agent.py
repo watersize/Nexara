@@ -107,11 +107,11 @@ def run_api() -> None:
         fail("FastAPI is not installed")
     import uvicorn
 
-    app = FastAPI(title="Nexara AI", version="0.3.0")
+    app = FastAPI(title="veyo.ai", version="0.3.0")
 
     @app.get("/health")
     async def health() -> Dict[str, Any]:
-        return {"ok": True, "service": "nexara-python-ai"}
+        return {"ok": True, "service": "veyo-ai-python"}
 
     @app.post("/index-pdfs")
     async def api_index_pdfs(payload: PdfIndexPayload) -> Dict[str, Any]:
@@ -781,7 +781,7 @@ def ask_ai_v2(question: str, storage_dir: str, extra_context: str = "") -> Dict[
     messages = [{
         "role": "system",
         "content": (
-            "You are Nexara, a school study assistant. "
+            "You are veyo.ai, a school study assistant. "
             "Always answer in Russian using clear Cyrillic text. "
             "If textbook context is provided, rely only on that context. "
             "If no exact textbook fragment is found, say that honestly and then still answer helpfully."
@@ -825,7 +825,7 @@ def ask_ai_v2(question: str, storage_dir: str, extra_context: str = "") -> Dict[
                 {
                     "role": "system",
                     "content": (
-                        "You are Nexara, a study assistant. "
+                        "You are veyo.ai, a study assistant. "
                         "Reply in plain Russian using Cyrillic letters. "
                         "Do not replace letters with question marks."
                     ),
