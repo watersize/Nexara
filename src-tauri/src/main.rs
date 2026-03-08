@@ -177,6 +177,11 @@ struct DeleteScheduleLessonPayload {
     lesson: ScheduleLesson,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct DeleteTextbookPayload {
+    hash: String,
+}
+
 #[derive(Debug, Clone)]
 struct SubjectProfile {
     teacher: String,
@@ -1080,6 +1085,45 @@ async fn upsert_material_link(
     .await
 }
 
+async fn delete_material_link(
+    state: &AppState,
+    user_key: String,
+    hash: String,
+) -> Result<Option<String>, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        conn.execute(
+            "DELETE FROM user_materials WHERE user_key = ?1 AND material_hash = ?2",
+            params![user_key, hash.clone()],
+        )
+        .map_err(|err| err.to_string())?;
+
+        let remaining: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM user_materials WHERE material_hash = ?1",
+                [hash.clone()],
+                |row| row.get(0),
+            )
+            .map_err(|err| err.to_string())?;
+
+        if remaining > 0 {
+            return Ok(None);
+        }
+
+        let stored_path: Result<String, _> = conn.query_row(
+            "SELECT stored_path FROM material_store WHERE hash = ?1",
+            [hash.clone()],
+            |row| row.get(0),
+        );
+        let stored_path = stored_path.ok();
+
+        conn.execute("DELETE FROM material_store WHERE hash = ?1", [hash])
+            .map_err(|err| err.to_string())?;
+
+        Ok(stored_path)
+    })
+    .await
+}
+
 async fn post_supabase<T: Serialize, R: for<'de> Deserialize<'de>>(
     state: &AppState,
     path: &str,
@@ -1515,6 +1559,23 @@ async fn upload_textbook(
 }
 
 #[tauri::command]
+async fn delete_textbook(
+    payload: DeleteTextbookPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    if let Some(path) = delete_material_link(&state, user_key.clone(), payload.hash).await? {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+    rebuild_rag_index(&state, user_key).await?;
+    Ok(OperationResult {
+        ok: true,
+        message: "Учебник удалён.".to_string(),
+    })
+}
+
+#[tauri::command]
 async fn list_textbooks_command(state: State<'_, AppState>) -> Result<Vec<MaterialRecord>, String> {
     let session = load_auth_session(&state).await?;
     list_materials(&state, local_user_key(session.as_ref())).await
@@ -1612,6 +1673,7 @@ fn main() {
             save_schedule,
             delete_schedule_lesson,
             upload_textbook,
+            delete_textbook,
             list_textbooks_command,
             get_schedule_for_weekday,
             ask_ai,

@@ -148,7 +148,10 @@ def parse_schedule(weekday: int, text: str, subjects: List[str]) -> Dict[str, An
     if not text.strip():
         raise ValueError("Schedule text is empty")
     text = normalize_ocr_text(text)
-    fallback_lessons = fallback_parse(text, subjects)
+    try:
+        fallback_lessons = fallback_parse(text, subjects)
+    except Exception:
+        fallback_lessons = coarse_parse(text, subjects)
     system = (
         "Ты извлекаешь школьное расписание из текста или OCR. "
         "Тебе дан список допустимых предметов. Исправляй опечатки и выбирай ближайший предмет только из списка. "
@@ -163,10 +166,13 @@ def parse_schedule(weekday: int, text: str, subjects: List[str]) -> Dict[str, An
         try:
             parsed = json.loads(extract_json(raw))
             normalized = normalize_lessons(parsed.get("lessons", []), subjects)
-            normalized = merge_times_from_fallback(normalized, fallback_lessons)
+            if fallback_lessons:
+                normalized = merge_times_from_fallback(normalized, fallback_lessons)
             return {"lessons": normalized}
         except Exception:
             pass
+    if not fallback_lessons:
+        raise ValueError("Не удалось распознать расписание на изображении. Попробуй более чёткий скрин или допиши 1-2 урока текстом.")
     return {"lessons": fallback_lessons}
 
 
@@ -176,7 +182,10 @@ def parse_schedule_from_files(weekday: int, file_paths: List[str], subjects: Lis
         path = Path(file_path)
         if not path.exists():
             continue
-        extracted.append(extract_text_from_file(path))
+        try:
+            extracted.append(extract_text_from_file(path))
+        except Exception:
+            continue
     text = "\n".join(part.strip() for part in extracted if part.strip())
     if not text:
         raise ValueError("Не удалось распознать текст из файла или изображения.")
@@ -240,7 +249,10 @@ def prepare_image_for_vision(path: Path) -> tuple[str, str]:
 
 def ocr_with_vision(path: Path) -> str:
     local_text = local_ocr_text(path)
-    mime, encoded = prepare_image_for_vision(path)
+    try:
+        mime, encoded = prepare_image_for_vision(path)
+    except Exception:
+        return normalize_ocr_text(local_text)
     prompt = (
         "This is a screenshot or photo of a school schedule. "
         "Detect the language automatically and transcribe only schedule-related text. "
@@ -256,7 +268,10 @@ def ocr_with_vision(path: Path) -> str:
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
         ],
     }]
-    vision_text = normalize_ocr_text(call_groq(VISION_MODEL, messages, 0.1) or "")
+    try:
+        vision_text = normalize_ocr_text(call_groq(VISION_MODEL, messages, 0.1) or "")
+    except Exception:
+        vision_text = ""
     local_text = normalize_ocr_text(local_text)
     return vision_text if len(vision_text.strip()) >= len(local_text.strip()) else local_text
 
@@ -348,6 +363,39 @@ def fallback_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
         })
     if not lessons:
         raise ValueError("Could not parse schedule")
+    return lessons
+
+
+def coarse_parse(text: str, subjects: List[str]) -> List[Dict[str, Any]]:
+    lines = [normalize_schedule_line(line) for line in text.splitlines()]
+    lines = [line for line in lines if line and not is_ignored_schedule_line(line) and not is_break_line(line)]
+    lessons: List[Dict[str, Any]] = []
+    start_time = extract_first_time(text) or "08:30"
+    lesson_duration = 45
+    break_duration = 10
+    for line in lines:
+        subject = best_subject_match(line, subjects)
+        if not subject:
+            continue
+        room_match = re.search(r"(?:каб(?:инет)?|аудитория|room)\.?\s*([0-9A-Za-zА-Яа-я/-]+)", line, re.I)
+        range_match = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–—]\s*(\d{1,2}[:.]\d{2})", line)
+        if range_match:
+            lesson_start = normalize_time(range_match.group(1))
+            lesson_end = normalize_time(range_match.group(2))
+            start_time = add_minutes(lesson_end, break_duration)
+        else:
+            lesson_start = start_time
+            lesson_end = add_minutes(lesson_start, lesson_duration)
+            start_time = add_minutes(lesson_end, break_duration)
+        lessons.append({
+            "subject": subject,
+            "teacher": "",
+            "room": room_match.group(1) if room_match else "",
+            "start_time": lesson_start,
+            "end_time": lesson_end,
+            "notes": line,
+            "materials": [],
+        })
     return lessons
 
 
