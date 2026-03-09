@@ -1,5 +1,8 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import { fetchNodeWithNeighbors } from '@/lib/markdown-link-indexer'
+
 type NeighborNode = {
   node_id: string
   title: string
@@ -25,6 +28,25 @@ export function MiniGraphPreview({
   neighbors: NeighborNode[]
   onExpand?: () => void
 }) {
+  const [subGraphs, setSubGraphs] = useState<Record<string, NeighborNode[]>>({})
+
+  useEffect(() => {
+    let mounted = true
+    const top = neighbors.slice(0, 4)
+    for (const n of top) {
+        if (n.kind !== 'task') { // Only fetch sub-branches for notes/schedules to avoid massive task trees
+            fetchNodeWithNeighbors(n.node_id).then(res => {
+                if (mounted && res?.neighbors) {
+                    setSubGraphs(prev => ({
+                        ...prev, 
+                        [n.node_id]: res.neighbors.filter(sn => sn.title !== centerLabel)
+                    }))
+                }
+            }).catch(() => {})
+        }
+    }
+    return () => { mounted = false }
+  }, [neighbors, centerLabel])
   const cx = 92
   const cy = 72
   const radius = 48
@@ -56,10 +78,28 @@ export function MiniGraphPreview({
           const angle = (Math.PI * 2 * index) / Math.max(visible.length, 1) - Math.PI / 2
           const x = cx + Math.cos(angle) * radius
           const y = cy + Math.sin(angle) * radius
-          const stroke = node.direction === 'incoming' ? 'rgba(16,185,129,0.5)' : 'rgba(59,130,246,0.55)'
+          const stroke = node.direction === 'incoming' ? 'rgba(16,185,129,0.8)' : 'rgba(59,130,246,0.85)'
+          const subNodes = subGraphs[node.node_id]?.slice(0, 3) || []
+          
           return (
             <g key={node.node_id}>
-              <line x1={cx} y1={cy} x2={x} y2={y} stroke={stroke} strokeWidth="1.8" filter="url(#mini-graph-glow)" />
+              {/* Main branch */}
+              <line x1={cx} y1={cy} x2={x} y2={y} stroke={stroke} strokeWidth="2.5" filter="url(#mini-graph-glow)" />
+              
+              {/* Sub-branches (Depth 2) */}
+              {subNodes.map((subNode, subIndex) => {
+                  const subAngle = angle + (subIndex - (subNodes.length - 1) / 2) * 0.8
+                  const sx = x + Math.cos(subAngle) * 22
+                  const sy = y + Math.sin(subAngle) * 22
+                  const subStroke = subNode.direction === 'incoming' ? 'rgba(16,185,129,0.4)' : 'rgba(59,130,246,0.4)'
+                  return (
+                      <g key={`sub-${subNode.node_id}`}>
+                          <line x1={x} y1={y} x2={sx} y2={sy} stroke={subStroke} strokeWidth="1.2" filter="url(#mini-graph-glow)" />
+                          <circle cx={sx} cy={sy} r="4" fill={kindColor(subNode.kind)} filter="url(#mini-graph-glow)" />
+                      </g>
+                  )
+              })}
+              
               <circle cx={x} cy={y} r="7.5" fill={kindColor(node.kind)} filter="url(#mini-graph-glow)" />
             </g>
           )

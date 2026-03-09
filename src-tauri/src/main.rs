@@ -2730,6 +2730,96 @@ async fn get_node_with_neighbors(
     get_node_with_neighbors_impl(&state, user_key, payload.node_id).await
 }
 
+#[derive(Serialize)]
+pub struct GlobalGraphNode {
+    pub node_id: String,
+    pub kind: String,
+    pub title: String,
+    pub slug: String,
+    pub topic: String,
+    pub content: String,
+    pub source_ref: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize)]
+pub struct GlobalGraphEdge {
+    pub from_node_id: String,
+    pub to_node_id: String,
+    pub edge_type: String,
+}
+
+#[derive(Serialize)]
+pub struct GlobalGraphSnapshot {
+    pub nodes: Vec<GlobalGraphNode>,
+    pub edges: Vec<GlobalGraphEdge>,
+}
+
+async fn get_all_graph_impl(
+    state: &AppState,
+    user_key: String,
+) -> Result<GlobalGraphSnapshot, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let mut nodes_stmt = conn
+            .prepare(
+                "SELECT node_id, kind, title, slug, topic, content, source_ref, created_at, updated_at
+                 FROM workspace_nodes
+                 WHERE user_key = ?1",
+            )
+            .map_err(|err| err.to_string())?;
+        
+        let nodes: Vec<GlobalGraphNode> = nodes_stmt
+            .query_map([user_key.clone()], |row| {
+                Ok(GlobalGraphNode {
+                    node_id: row.get(0)?,
+                    kind: row.get(1)?,
+                    title: row.get(2)?,
+                    slug: row.get(3)?,
+                    topic: row.get(4)?,
+                    content: row.get(5)?,
+                    source_ref: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            })
+            .map_err(|err| err.to_string())?
+            .filter_map(Result::ok)
+            .collect();
+
+        let mut edges_stmt = conn
+            .prepare(
+                "SELECT from_node_id, to_node_id, edge_type
+                 FROM workspace_edges
+                 WHERE user_key = ?1 AND to_node_id IS NOT NULL",
+            )
+            .map_err(|err| err.to_string())?;
+        
+        let edges: Vec<GlobalGraphEdge> = edges_stmt
+            .query_map([user_key], |row| {
+                Ok(GlobalGraphEdge {
+                    from_node_id: row.get(0)?,
+                    to_node_id: row.get(1)?,
+                    edge_type: row.get(2)?,
+                })
+            })
+            .map_err(|err| err.to_string())?
+            .filter_map(Result::ok)
+            .collect();
+
+        Ok(GlobalGraphSnapshot { nodes, edges })
+    }).await
+}
+
+#[tauri::command]
+async fn get_all_graph(
+    state: State<'_, AppState>,
+) -> Result<GlobalGraphSnapshot, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    get_all_graph_impl(&state, user_key).await
+}
+
 #[tauri::command]
 async fn list_note_folders(state: State<'_, AppState>) -> Result<Vec<NoteFolder>, String> {
     let session = load_auth_session(&state).await?;
@@ -2942,6 +3032,7 @@ fn main() {
             delete_task,
             sync_node_links,
             get_node_with_neighbors,
+            get_all_graph,
             list_note_folders,
             save_note_folder,
             delete_note_folder,

@@ -1,14 +1,16 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { FileText, FolderOpen, BookOpen } from 'lucide-react'
+import { FileText, FolderOpen, BookOpen, Calendar } from 'lucide-react'
+import { format, parse, isValid } from 'date-fns'
+import { ru } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 
 type SearchResult = {
   id: string
   title: string
-  kind: 'note' | 'folder' | 'textbook'
+  kind: 'note' | 'folder' | 'textbook' | 'schedule'
 }
 
 type WikiLinkPopupProps = {
@@ -21,6 +23,7 @@ type WikiLinkPopupProps = {
 const kindIcon = (kind: string) => {
   if (kind === 'folder') return FolderOpen
   if (kind === 'textbook') return BookOpen
+  if (kind === 'schedule') return Calendar
   return FileText
 }
 
@@ -42,7 +45,34 @@ export function WikiLinkPopup({ position, onSelect, onClose, dark = true }: Wiki
     const timer = setTimeout(async () => {
       try {
         const data = await tauriInvoke<SearchResult[]>('search_notes', { payload: { query } })
-        setResults(data || [])
+        let finalResults = data || []
+        
+        const q = query.trim().toLowerCase()
+        const today = new Date()
+        let detectedDate: Date | null = null
+        
+        if (q === 'сегодня') detectedDate = today
+        else if (q === 'завтра') { const d = new Date(); d.setDate(d.getDate() + 1); detectedDate = d }
+        else if (q === 'вчера') { const d = new Date(); d.setDate(d.getDate() - 1); detectedDate = d }
+        else {
+            const parsed1 = parse(q, 'd MMMM', new Date(), { locale: ru })
+            const parsed2 = parse(q, 'd MMM', new Date(), { locale: ru })
+            const parsed3 = parse(q, 'dd.MM', new Date(), { locale: ru })
+            if (isValid(parsed1)) detectedDate = parsed1
+            else if (isValid(parsed2)) detectedDate = parsed2
+            else if (isValid(parsed3)) detectedDate = parsed3
+        }
+        
+        if (detectedDate) {
+            const displayStr = format(detectedDate, 'd MMMM yyyy', { locale: ru })
+            finalResults.unshift({
+                id: `schedule-${displayStr}`,
+                title: `Расписание: ${displayStr}`,
+                kind: 'schedule'
+            })
+        }
+        
+        setResults(finalResults)
         setSelectedIndex(0)
       } catch {
         setResults([])
@@ -116,7 +146,7 @@ export function WikiLinkPopup({ position, onSelect, onClose, dark = true }: Wiki
               <Icon className="h-4 w-4 shrink-0 opacity-50" />
               <span className="truncate">{result.title}</span>
               <span className={cn('ml-auto text-[10px] uppercase tracking-wider', dark ? 'text-white/30' : 'text-gray-300')}>
-                {result.kind === 'note' ? 'Заметка' : result.kind === 'folder' ? 'Папка' : 'Учебник'}
+                {result.kind === 'note' ? 'Заметка' : result.kind === 'folder' ? 'Папка' : result.kind === 'schedule' ? 'День' : 'Учебник'}
               </span>
             </button>
           )

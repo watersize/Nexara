@@ -8,7 +8,7 @@ import { useTheme } from 'next-themes'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
 import { cn } from '@/lib/utils'
-import { BookOpen, CalendarDays, ChevronLeft, ChevronRight, Home, MessageCircle, MoonStar, Notebook, Settings, SquareCheckBig } from 'lucide-react'
+import { BookOpen, CalendarDays, ChevronLeft, ChevronRight, Home, MessageCircle, MoonStar, Network, Notebook, Settings, SquareCheckBig } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/', label: 'Главная', icon: Home },
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/schedule', label: 'Расписание', icon: CalendarDays },
   { href: '/chat', label: 'AI Чат', icon: MessageCircle },
   { href: '/textbooks', label: 'Учебники', icon: BookOpen },
+  { href: '/graph', label: 'Граф связей', icon: Network },
 ]
 
 export function AppShell({ children, displayName, email, hideSidebar }: { children: ReactNode; displayName?: string; email?: string; hideSidebar?: boolean }) {

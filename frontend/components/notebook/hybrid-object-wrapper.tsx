@@ -17,6 +17,8 @@ type HybridObjectWrapperProps = {
   dim: string
   onSelect: (id: string, additive?: boolean) => void
   onTransform: (id: string, patch: Partial<HybridObject>) => void
+  onGroupMoveStart?: () => void
+  onGroupMove?: (dx: number, dy: number) => void
   children?: ReactNode
 }
 
@@ -80,6 +82,8 @@ export function HybridObjectWrapper({
   dim,
   onSelect,
   onTransform,
+  onGroupMoveStart,
+  onGroupMove,
   children,
 }: HybridObjectWrapperProps) {
   const outline = selected ? accent : (multiSelected ? `${accent}80` : 'transparent')
@@ -178,16 +182,23 @@ export function HybridObjectWrapper({
         className="absolute inset-0 cursor-move border-none bg-transparent"
         onPointerDown={(event) => {
           if (event.button !== 0) return
-          onSelect(object.id, event.shiftKey)
+          if (!multiSelected) onSelect(object.id, event.shiftKey)
           const startX = event.clientX
           const startY = event.clientY
           const startObjX = object.x
           const startObjY = object.y
 
+          if (multiSelected && onGroupMoveStart) onGroupMoveStart()
+
           const handlePointerMove = (moveEvent: PointerEvent) => {
             const dx = (moveEvent.clientX - startX) / scale
             const dy = (moveEvent.clientY - startY) / scale
-            onTransform(object.id, { x: startObjX + dx, y: startObjY + dy })
+            
+            if (multiSelected && onGroupMove) {
+               onGroupMove(dx, dy)
+            } else {
+               onTransform(object.id, { x: startObjX + dx, y: startObjY + dy })
+            }
           }
 
           const handlePointerUp = () => {

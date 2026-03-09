@@ -8,6 +8,7 @@ import { Check, Clock3, Columns2, ListTodo, Plus, Trash2, Download } from 'lucid
 import { toast } from 'sonner'
 import { AppShell } from '@/components/app-shell'
 import { MiniGraphPreview } from '@/components/graph/mini-graph-preview'
+import { WikiLinkPopup } from '@/components/notebook/wiki-link-popup'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -111,7 +112,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function TaskCard({
+function BoardTaskCard({
   task,
   onOpen,
   onToggle,
@@ -132,7 +133,7 @@ function TaskCard({
   )
 
   return (
-    <article className="rounded-[22px] border border-white/8 bg-black/15 p-4 group">
+    <article className="rounded-[22px] border border-white/8 bg-black/15 p-4 group hover:border-blue-500/30 transition-colors">
       <div className="flex items-start gap-3">
         <Tip label={task.done ? 'Вернуть' : 'Выполнить'}>
           <button type="button" onClick={onToggle} className="mt-1 text-white/70 hover:text-white">
@@ -146,13 +147,145 @@ function TaskCard({
             {task.topic ? <span className="rounded-full border border-white/10 px-3 py-1">{task.topic}</span> : null}
             {task.dueDate ? <span>{format(new Date(task.dueDate), 'd MMM', { locale: ru })}</span> : null}
           </div>
-          {task.details ? <div className="mt-3 line-clamp-3 text-sm leading-6 text-white/55">{task.details}</div> : null}
+          {task.details ? <div className="mt-3 line-clamp-3 text-sm leading-6 text-white/55"><ReactMarkdown>{task.details}</ReactMarkdown></div> : null}
         </button>
         <Tip label="Удалить">
           <button type="button" onClick={onDelete} className="text-white/45 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
             <Trash2 className="h-4 w-4" />
           </button>
         </Tip>
+      </div>
+    </article>
+  )
+}
+
+function TaskCard({
+  task,
+  onOpen,
+  onToggle,
+  onDelete,
+}: {
+  task: TaskItem
+  onOpen: () => void
+  onToggle: () => void
+  onDelete: () => void
+}) {
+  const Tip = ({ children, label, side = 'bottom' }: { children: React.ReactNode, label: string, side?: 'top' | 'bottom' | 'left' | 'right' }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side} className="text-[11px] font-medium bg-neutral-900 border-white/10 text-white px-2 py-1 rounded-lg shadow-xl">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+
+  const lines = (task.details || '').split('\n')
+  const stepLines = lines.filter(l => l.trim().startsWith('- [ ]') || l.trim().startsWith('- [x]'))
+  const noteLines = lines.filter(l => !(l.trim().startsWith('- [ ]') || l.trim().startsWith('- [x]')))
+  const completedSteps = stepLines.filter(l => l.trim().startsWith('- [x]')).length
+  const totalSteps = stepLines.length
+  const progressPercent = task.done ? 100 : totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
+
+  return (
+    <article className="rounded-2xl border border-white/10 bg-white dark:bg-black/20 shadow-xl overflow-hidden flex flex-col md:flex-row group transition hover:border-blue-500/30">
+      
+      {/* Left Sidebar block */}
+      <div className="md:w-48 bg-[#f8f9fc] dark:bg-white/5 flex flex-col items-center py-5 border-r border-gray-100 dark:border-white/5">
+        <div className="flex items-center gap-1.5 text-red-500 dark:text-red-400 font-bold mb-6 bg-red-50 dark:bg-red-500/10 px-2 py-0.5 rounded text-sm">
+          <Clock3 className="h-4 w-4" /> {progressPercent}%
+        </div>
+
+        <div className="w-full px-4 mb-5 text-center">
+          <div className="text-[10px] uppercase font-semibold text-gray-400 dark:text-white/40 mb-1 border-b border-gray-200 dark:border-white/10 pb-1 w-full flex justify-center">ВРЕМЯ ОТ И ДО</div>
+          <div className="text-sm font-bold text-gray-800 dark:text-white mt-2">{task.startTime || '--:--'} - {task.endTime || '--:--'}</div>
+          {task.durationMinutes > 0 && <div className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 mt-1">на {Math.floor(task.durationMinutes/60)}ч {task.durationMinutes%60}м</div>}
+        </div>
+
+        <div className="w-full px-4 mb-5 text-center">
+          <div className="text-[10px] uppercase font-semibold text-gray-400 dark:text-white/40 mb-1 border-b border-gray-200 dark:border-white/10 pb-1 w-full flex justify-center">С ДАТЫ</div>
+          <div className="text-sm font-bold text-gray-800 dark:text-white mt-2">{task.dueDate ? format(new Date(task.dueDate), 'd MMM yyyy', { locale: ru }) : '—'}</div>
+          {task.dueDate === format(new Date(), 'yyyy-MM-dd') && <div className="text-[10px] font-semibold text-gray-400 dark:text-white/40 mt-1 uppercase tracking-wide">СЕГОДНЯ</div>}
+        </div>
+
+        <div className="w-full px-4 text-center mt-auto">
+          <div className="text-[10px] uppercase font-semibold text-gray-400 dark:text-white/40 mb-2 border-b border-gray-200 dark:border-white/10 pb-1 w-full flex justify-center">ЭТАПЫ</div>
+          <div className="text-[11px] font-bold text-gray-800 dark:text-white whitespace-nowrap">{completedSteps}/{totalSteps} Завершены</div>
+        </div>
+      </div>
+
+      {/* Main Content block */}
+      <div className="flex-1 p-5 md:p-6 bg-white dark:bg-transparent text-gray-900 dark:text-white relative flex flex-col">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-gray-100 dark:border-white/10 pb-4 mb-5">
+          <h2 className={cn("text-xl font-bold flex items-center gap-3 cursor-pointer hover:text-blue-500 transition-colors", task.done && 'line-through text-gray-400 dark:text-white/40')} onClick={onOpen}>
+            <ListTodo className="h-6 w-6 text-gray-400 dark:text-white/30" />
+            {task.title}
+          </h2>
+          <div className="flex items-center gap-3">
+            <button className="flex items-center gap-1.5 border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 dark:border-purple-500/30 dark:text-purple-300 dark:bg-purple-500/10 px-3 py-1.5 rounded-full text-xs font-bold transition-colors">
+              <Clock3 className="h-3.5 w-3.5" /> В работе
+            </button>
+            <Tip label="Удалить">
+              <button type="button" onClick={onDelete} className="text-gray-400 hover:text-red-500 dark:text-white/30 dark:hover:text-red-400 transition-colors">
+                <Trash2 className="h-5 w-5" />
+              </button>
+            </Tip>
+            <Tip label={task.done ? 'Вернуть' : 'Выполнить'}>
+              <button type="button" onClick={onToggle} className="text-gray-400 hover:text-emerald-500 dark:text-white/30 dark:hover:text-emerald-400 transition-colors flex items-center justify-center border border-gray-200 dark:border-white/20 rounded p-1">
+                 {task.done ? <Check className="h-4 w-4 text-emerald-500" /> : <div className="h-4 w-4" />}
+              </button>
+            </Tip>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1">
+          <div className="flex flex-col">
+            <div className="grid grid-cols-2 gap-6 mb-6">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-400 dark:text-white/50 mb-2">ИНФО О ЗАДАЧЕ :</div>
+                <div className="flex items-center gap-2 text-sm font-medium mb-1"><div className="w-5 h-5 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center text-xs">👤</div> {task.topic || 'Без залоговка'}</div>
+                <div className="flex items-center gap-2 text-sm font-medium text-gray-500 dark:text-white/50"><div className="w-5 h-5 rounded flex items-center justify-center text-xs border dark:border-white/20">📁</div> Рабочее пр-во</div>
+              </div>
+              <div>
+                 <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-400 dark:text-white/50 mb-2">СОСТОЯНИЕ :</div>
+                 <div className="flex items-center gap-2 text-sm font-medium mb-1"><div className="text-emerald-500 text-xs">●</div> {task.done ? 'Выполнено' : 'В работе'}</div>
+                 <div className="flex items-center gap-2 text-sm font-medium text-gray-500 dark:text-white/50"><div className="text-purple-500 text-xs">●</div> {bucketTitle(task.bucket)}</div>
+              </div>
+            </div>
+
+            <div className="mt-8">
+                <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-400 dark:text-white/50 mb-3 block">ЭТАПЫ :</div>
+                {stepLines.length > 0 ? (
+                <div className="space-y-2">
+                    {stepLines.map((line, i) => {
+                    const isChecked = line.trim().startsWith('- [x]')
+                    const text = line.replace(/^- \[[x ]\]/, '').trim()
+                    return (
+                        <div key={i} className="flex items-start gap-3">
+                        <div className={cn("mt-0.5 rounded w-4 h-4 flex shrink-0 items-center justify-center border", isChecked ? "bg-purple-600 border-purple-600" : "border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-black/50")}>
+                            {isChecked && <Check className="h-3 w-3 text-white" />}
+                        </div>
+                        <span className={cn("text-sm line-clamp-2", isChecked ? "text-gray-400 dark:text-white/30 line-through" : "text-gray-700 dark:text-gray-300 font-medium")}>{text}</span>
+                        </div>
+                    )
+                    })}
+                </div>
+                ) : (
+                    <div className="text-sm text-gray-400 dark:text-white/30 italic">Ступеней не найдено</div>
+                )}
+            </div>
+          </div>
+
+          <div className="flex flex-col h-full min-h-[250px]">
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-400 dark:text-white/50 mb-3 block">ОПИСАНИЕ И ССЫЛКИ :</div>
+            <div className="flex-1 prose prose-sm dark:prose-invert max-w-none text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-white/[0.02] p-4 rounded-xl border border-gray-100 dark:border-white/5 overflow-hidden relative">
+               <div className="absolute inset-0 overflow-y-auto p-4 custom-scrollbar">
+                   <ReactMarkdown>
+                      {noteLines.join('\n') || 'Нет описания...'}
+                   </ReactMarkdown>
+               </div>
+            </div>
+          </div>
+        </div>
       </div>
     </article>
   )
@@ -179,9 +312,10 @@ export default function PlannerPage() {
   const [draft, setDraft] = useState<TaskDraft>(createEmptyDraft())
   const [activeTaskId, setActiveTaskId] = useState('')
   const [graph, setGraph] = useState<any>(null)
-  const [linkMenu, setLinkMenu] = useState<{ open: boolean, pos: number } | null>(null)
+  const [linkMenu, setLinkMenu] = useState<{ open: boolean, pos: number, bounds?: { x: number, y: number } } | null>(null)
   const [hoveredNode, setHoveredNode] = useState<{ title: string, kind: string, details?: string } | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [subGraphs, setSubGraphs] = useState<Record<string, any[]>>({})
 
   const loadTasks = async () => {
     setLoading(true)
@@ -242,6 +376,25 @@ export default function PlannerPage() {
     }
     void loadGraph()
   }, [activeTaskId, tasks])
+
+  useEffect(() => {
+    let mounted = true
+    if (!graph?.neighbors) return
+    const top = graph.neighbors.slice(0, 10)
+    for (const n of top) {
+        if (n.kind !== 'task') {
+            fetchNodeWithNeighbors(n.node_id).then(res => {
+                if (mounted && res?.neighbors) {
+                    setSubGraphs(prev => ({
+                        ...prev, 
+                        [n.node_id]: res.neighbors.filter((sn: any) => sn.title !== graph.node.title)
+                    }))
+                }
+            }).catch(() => {})
+        }
+    }
+    return () => { mounted = false }
+  }, [graph])
 
   const grouped = useMemo(
     () => {
@@ -360,7 +513,8 @@ export default function PlannerPage() {
     
     if (val.substring(0, cursor).endsWith('[[')) {
       val = val.substring(0, cursor) + ']]' + val.substring(cursor)
-      setLinkMenu({ open: true, pos: cursor })
+      const bounds = e.target.getBoundingClientRect()
+      setLinkMenu({ open: true, pos: cursor, bounds: { x: bounds.left + 20, y: bounds.bottom } as DOMRect })
       setDraft((c) => ({ ...c, details: val }))
       setTimeout(() => {
           const el = document.getElementById('details_textarea') as HTMLTextAreaElement
@@ -373,18 +527,18 @@ export default function PlannerPage() {
     setDraft(c => ({...c, details: val}))
   }
 
-  const insertLink = (type: string) => {
+  const insertWikiLink = (result: { title: string }) => {
       if (!linkMenu) return
       const prefix = draft.details.substring(0, linkMenu.pos)
       const suffix = draft.details.substring(linkMenu.pos)
-      const insertion = type + ': '
+      const insertion = result.title
       setDraft(c => ({...c, details: prefix + insertion + suffix}))
       setLinkMenu(null)
       setTimeout(() => {
           const el = document.getElementById('details_textarea') as HTMLTextAreaElement
           if(el) { 
               el.focus(); 
-              const newPos = linkMenu.pos + insertion.length
+              const newPos = linkMenu.pos + insertion.length + 2 // skip out of `]]`
               el.selectionStart = el.selectionEnd = newPos 
           }
       }, 0)
@@ -563,7 +717,7 @@ export default function PlannerPage() {
                       <div className="rounded-[20px] border border-white/7 bg-white/[0.02] px-4 py-6 text-sm text-white/45">Загрузка...</div>
                     ) : grouped[bucket].length ? (
                       grouped[bucket].map((task) => (
-                        <TaskCard
+                        <BoardTaskCard
                           key={task.id}
                           task={task}
                           onOpen={() => {
@@ -582,7 +736,7 @@ export default function PlannerPage() {
               ))}
             </div>
           ) : (
-            <div className="space-y-3 rounded-[28px] border border-white/8 bg-white/[0.03] p-4">
+            <div className="space-y-6">
               {[...tasks]
                 .sort((a, b) => `${a.dueDate} ${a.startTime}`.localeCompare(`${b.dueDate} ${b.startTime}`))
                 .map((task) => (
@@ -679,12 +833,13 @@ export default function PlannerPage() {
               <Field label="Описание">
                 <div className="relative">
                     <Textarea id="details_textarea" value={draft.details} onChange={handleDetailsChange} className="min-h-[170px] rounded-2xl border-white/10 bg-black/20 text-white" />
-                    {linkMenu?.open && (
-                        <div className="absolute top-full left-0 mt-2 z-50 flex gap-2 p-2 bg-neutral-900 border border-white/10 rounded-2xl shadow-xl animate-in fade-in slide-in-from-top-2">
-                            <button type="button" onClick={() => insertLink('Заметка')} className="px-4 py-2 rounded-xl bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-all font-semibold text-sm">Заметка</button>
-                            <button type="button" onClick={() => insertLink('Расписание')} className="px-4 py-2 rounded-xl bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-all font-semibold text-sm">Расписание</button>
-                            <button type="button" onClick={() => insertLink('Учебник')} className="px-4 py-2 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-all font-semibold text-sm">Учебник</button>
-                        </div>
+                    {linkMenu?.open && linkMenu.bounds && (
+                        <WikiLinkPopup
+                            position={linkMenu.bounds}
+                            onSelect={insertWikiLink}
+                            onClose={() => setLinkMenu(null)}
+                            dark={true}
+                        />
                     )}
                 </div>
               </Field>
@@ -816,6 +971,8 @@ export default function PlannerPage() {
                           const y = 210 + Math.sin(angle) * 150
                           const label = String(neighbor.title || '')
                           const isHovered = hoveredNode?.title === label
+                          const subNodes = subGraphs[neighbor.node_id]?.slice(0, 4) || []
+                          
                           return (
                             <g 
                                 key={neighbor.node_id} 
@@ -829,9 +986,26 @@ export default function PlannerPage() {
                                 y1="210"
                                 x2={x}
                                 y2={y}
-                                stroke={neighbor.direction === 'incoming' ? 'rgba(16,185,129,0.55)' : 'rgba(59,130,246,0.55)'}
-                                strokeWidth="2"
+                                stroke={neighbor.direction === 'incoming' ? 'rgba(16,185,129,0.7)' : 'rgba(59,130,246,0.7)'}
+                                strokeWidth="3"
                               />
+
+                              {/* Depth-2 sub-branches */}
+                              {subNodes.map((subNode, subIndex) => {
+                                  const subAngle = angle + (subIndex - (subNodes.length - 1) / 2) * 0.7
+                                  const sx = x + Math.cos(subAngle) * 55
+                                  const sy = y + Math.sin(subAngle) * 55
+                                  return (
+                                      <g key={`sub-${subNode.node_id}`}>
+                                          <line x1={x} y1={y} x2={sx} y2={sy} stroke={neighbor.direction === 'incoming' ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.3)'} strokeWidth="1.5" />
+                                          <circle cx={sx} cy={sy} r="8" fill={subNode.kind === 'folder' ? (subNode.color || '#f59e0b') : subNode.kind === 'note' ? '#10b981' : subNode.kind === 'schedule' ? '#a855f7' : '#3b82f6'} opacity="0.8" />
+                                          <text x={sx} y={sy + 18} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="10">
+                                            {subNode.title.length > 12 ? `${subNode.title.slice(0, 12)}...` : subNode.title}
+                                          </text>
+                                      </g>
+                                  )
+                              })}
+
                               <circle
                                 cx={x}
                                 cy={y}
