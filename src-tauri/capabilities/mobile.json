@@ -1,0 +1,17 @@
+{
+  "identifier": "mobile",
+  "description": "Mobile capability for Nexara (Android & iOS).",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "notification:default",
+    "fs:default",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "core:app:default",
+    "core:path:default",
+    "core:window:default"
+  ]
+}

@@ -8,59 +8,46 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAppState } from '@/lib/tauri-provider'
+import { tauriInvoke } from '@/lib/tauri-bridge'
 import { cn } from '@/lib/utils'
 import { CalendarDays, Check, Circle, Plus, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 type TaskBucket = 'today' | 'week' | 'later' | 'done'
 
 interface TaskItem {
   id: string
   title: string
-  subject: string
+  topic: string
   dueDate: string
   details: string
   bucket: TaskBucket
   done: boolean
+  updatedAt: string
 }
 
-const STORAGE_KEY = 'nexara_tasks_v1'
-
-function seedTasks() {
-  return [
-    {
-      id: 'task-1',
-      title: 'Решить задачи §12 (№1-5)',
-      subject: 'Математика',
-      dueDate: '',
-      details: '',
-      bucket: 'today' as const,
-      done: false,
-    },
-    {
-      id: 'task-2',
-      title: 'Читать главу 4 "Война и мир"',
-      subject: 'Литература',
-      dueDate: '',
-      details: '',
-      bucket: 'week' as const,
-      done: false,
-    },
-  ]
-}
+const LEGACY_STORAGE_KEY = 'nexara_tasks_v1'
 
 function bucketTitle(bucket: TaskBucket) {
-  if (bucket === 'today') return 'Сегодня'
-  if (bucket === 'week') return 'На неделе'
-  if (bucket === 'later') return 'Позже'
-  return 'Выполнено'
+  if (bucket === 'today') return '???????'
+  if (bucket === 'week') return '?? ??????'
+  if (bucket === 'later') return '?????'
+  return '?????????'
+}
+
+function toTaskItem(task: any): TaskItem {
+  return {
+    id: String(task.id || task.task_id || `task-${Date.now()}`),
+    title: String(task.title || ''),
+    topic: String(task.topic || task.subject || ''),
+    dueDate: String(task.due_date || task.dueDate || ''),
+    details: String(task.details || ''),
+    bucket: (task.done ? 'done' : task.bucket || 'today') as TaskBucket,
+    done: Boolean(task.done),
+    updatedAt: String(task.updated_at || task.updatedAt || new Date().toISOString()),
+  }
 }
 
 export default function PlannerPage() {
@@ -68,39 +55,67 @@ export default function PlannerPage() {
   const user = appState?.authSession
     ? { displayName: appState.authSession.display_name, email: appState.authSession.email }
     : undefined
-  const storageKey = `${STORAGE_KEY}:${user?.email || 'guest'}`
+  const accountKey = user?.email || 'guest'
 
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [isLoading, setIsLoading] = useState(true)
   const [draft, setDraft] = useState({
     title: '',
-    subject: '',
+    topic: '',
     dueDate: format(new Date(), 'yyyy-MM-dd'),
     details: '',
     bucket: 'today' as TaskBucket,
   })
 
-  const persistTasks = (updater: (current: TaskItem[]) => TaskItem[]) => {
-    setTasks((current) => {
-      const nextTasks = updater(current)
-      window.localStorage.setItem(storageKey, JSON.stringify(nextTasks))
-      return nextTasks
+  const saveTaskToDb = async (task: TaskItem) => {
+    await tauriInvoke('save_task', {
+      payload: {
+        task: {
+          id: task.id,
+          title: task.title,
+          topic: task.topic,
+          due_date: task.dueDate,
+          details: task.details,
+          bucket: task.bucket,
+          done: task.done,
+          updated_at: task.updatedAt,
+        },
+      },
     })
   }
 
-  useEffect(() => {
+  const loadTasks = async () => {
+    setIsLoading(true)
     try {
-      const raw = window.localStorage.getItem(storageKey)
-      setTasks(raw ? JSON.parse(raw) : [])
-    } catch {
+      let remote = (await tauriInvoke<any[]>('list_tasks')).map(toTaskItem)
+      if (!remote.length) {
+        const raw = window.localStorage.getItem(`${LEGACY_STORAGE_KEY}:${accountKey}`)
+        const legacy = raw ? JSON.parse(raw) : []
+        if (Array.isArray(legacy) && legacy.length) {
+          const migrated = legacy.map(toTaskItem)
+          for (const task of migrated) {
+            await saveTaskToDb(task)
+          }
+          window.localStorage.removeItem(`${LEGACY_STORAGE_KEY}:${accountKey}`)
+          remote = migrated
+        }
+      }
+      setTasks(remote)
+    } catch (error) {
+      toast.error('?? ??????? ????????? ??????', {
+        description: error instanceof Error ? error.message : String(error),
+      })
       setTasks([])
+    } finally {
+      setIsLoading(false)
     }
-  }, [storageKey])
+  }
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(tasks))
-  }, [storageKey, tasks])
+    void loadTasks()
+  }, [accountKey])
 
   const grouped = useMemo(
     () => ({
@@ -114,23 +129,23 @@ export default function PlannerPage() {
 
   const progress = `${grouped.done.length} / ${tasks.length || 0}`
 
-  const saveTask = () => {
+  const createTask = async () => {
     if (!draft.title.trim()) return
-    persistTasks((current) => [
-      {
-        id: `task-${Date.now()}`,
-        title: draft.title.trim(),
-        subject: draft.subject.trim(),
-        dueDate: draft.dueDate,
-        details: draft.details.trim(),
-        bucket: draft.bucket,
-        done: false,
-      },
-      ...current,
-    ])
+    const nextTask: TaskItem = {
+      id: `task-${Date.now()}`,
+      title: draft.title.trim(),
+      topic: draft.topic.trim(),
+      dueDate: draft.dueDate,
+      details: draft.details.trim(),
+      bucket: draft.bucket,
+      done: false,
+      updatedAt: new Date().toISOString(),
+    }
+    await saveTaskToDb(nextTask)
+    setTasks((current) => [nextTask, ...current])
     setDraft({
       title: '',
-      subject: '',
+      topic: '',
       dueDate: selectedDate,
       details: '',
       bucket: 'today',
@@ -138,22 +153,29 @@ export default function PlannerPage() {
     setIsDialogOpen(false)
   }
 
-  const toggleTask = (id: string) => {
-    persistTasks((current) =>
-      current.map((task) =>
-        task.id === id
-          ? {
-              ...task,
-              done: !task.done,
-              bucket: !task.done ? 'done' : 'today',
-            }
-          : task,
-      ),
-    )
+  const toggleTask = async (id: string) => {
+    const current = tasks.find((task) => task.id === id)
+    if (!current) return
+    const updated: TaskItem = {
+      ...current,
+      done: !current.done,
+      bucket: current.done ? 'today' : 'done',
+      updatedAt: new Date().toISOString(),
+    }
+    setTasks((items) => items.map((task) => (task.id === id ? updated : task)))
+    await saveTaskToDb(updated)
   }
 
-  const removeTask = (id: string) => {
-    persistTasks((current) => current.filter((task) => task.id !== id))
+  const removeTask = async (id: string) => {
+    setTasks((current) => current.filter((task) => task.id !== id))
+    try {
+      await tauriInvoke('delete_task', { payload: { id } })
+    } catch (error) {
+      toast.error('?? ??????? ??????? ??????', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+      await loadTasks()
+    }
   }
 
   return (
@@ -162,8 +184,8 @@ export default function PlannerPage() {
         <div className="rounded-[26px] border border-white/7 bg-white/[0.03] p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Планировщик</div>
-              <h1 className="mt-2 text-3xl font-semibold text-white">Задачи и дедлайны</h1>
+              <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">???????????</div>
+              <h1 className="mt-2 text-3xl font-semibold text-white">?????? ? ????????</h1>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -175,7 +197,7 @@ export default function PlannerPage() {
                 <div className="flex items-center gap-3">
                   <CalendarDays className="h-5 w-5 text-primary" />
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Дата</div>
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">????</div>
                     <div className="mt-1 text-sm font-medium text-white">
                       {format(new Date(selectedDate), 'd MMMM yyyy', { locale: ru })}
                     </div>
@@ -185,7 +207,7 @@ export default function PlannerPage() {
 
               <div className="min-w-[180px] rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
                 <div className="flex items-center justify-between text-sm text-white/60">
-                  <span>Выполнено задач сегодня</span>
+                  <span>????????? ????? ???????</span>
                   <span className="font-semibold text-white">{progress}</span>
                 </div>
                 <div className="mt-3 h-2 rounded-full bg-white/6">
@@ -212,19 +234,23 @@ export default function PlannerPage() {
                   {bucket !== 'done' && (
                     <Button onClick={() => setIsDialogOpen(true)} className="rounded-2xl">
                       <Plus className="h-4 w-4" />
-                      Добавить
+                      ????????
                     </Button>
                   )}
                 </div>
 
-                {items.length ? (
+                {isLoading ? (
+                  <div className="rounded-[22px] border border-white/7 bg-white/[0.02] px-5 py-8 text-center text-sm text-white/45">
+                    ???????? ??????...
+                  </div>
+                ) : items.length ? (
                   <div className="space-y-3">
                     {items.map((task) => (
                       <article key={task.id} className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4">
                         <div className="flex items-start gap-4">
                           <button
                             type="button"
-                            onClick={() => toggleTask(task.id)}
+                            onClick={() => void toggleTask(task.id)}
                             className="mt-1 text-white/75 transition-colors hover:text-white"
                           >
                             {task.done ? <Check className="h-5 w-5 text-primary" /> : <Circle className="h-5 w-5" />}
@@ -234,18 +260,16 @@ export default function PlannerPage() {
                               {task.title}
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-white/55">
-                              {task.subject && <span className="rounded-full bg-primary/14 px-3 py-1 text-xs text-primary">{task.subject}</span>}
-                              {task.dueDate && (
-                                <span>{format(new Date(task.dueDate), 'd MMM', { locale: ru })}</span>
-                              )}
+                              {task.topic && <span className="rounded-full bg-primary/14 px-3 py-1 text-xs text-primary">{task.topic}</span>}
+                              {task.dueDate && <span>{format(new Date(task.dueDate), 'd MMM', { locale: ru })}</span>}
                             </div>
                             {task.details && <div className="mt-3 text-sm leading-6 text-white/58">{task.details}</div>}
                           </div>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => removeTask(task.id)}
-                            className="rounded-2xl border-white/10 bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]"
+                            onClick={() => void removeTask(task.id)}
+                            className="rounded-2xl border-white/10 bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -255,7 +279,7 @@ export default function PlannerPage() {
                   </div>
                 ) : (
                   <div className="rounded-[22px] border border-white/7 bg-white/[0.02] px-5 py-8 text-center text-sm text-white/45">
-                    Нет задач в разделе
+                    ??? ????? ? ???????
                   </div>
                 )}
               </section>
@@ -268,7 +292,7 @@ export default function PlannerPage() {
         type="button"
         onClick={() => setIsDialogOpen(true)}
         className="fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-[24px] bg-primary text-white shadow-[0_22px_65px_-15px_rgba(92,113,255,0.85)] transition-all duration-200 hover:scale-105 active:scale-95"
-        aria-label="Добавить задачу"
+        aria-label="???????? ??????"
       >
         <Plus className="h-7 w-7" />
       </button>
@@ -280,16 +304,16 @@ export default function PlannerPage() {
         >
           <div className="flex items-start justify-between border-b border-white/8 px-5 py-4">
             <DialogHeader className="space-y-2 text-left">
-              <DialogTitle className="text-2xl font-semibold text-white">Новая задача</DialogTitle>
+              <DialogTitle className="text-2xl font-semibold text-white">????? ??????</DialogTitle>
               <DialogDescription className="text-sm leading-6 text-white/55">
-                Выбери дату и добавь задачу в нужный раздел планировщика.
+                ?????? ???? ? ?????? ?????? ? ?????? ?????? ????????????.
               </DialogDescription>
             </DialogHeader>
           </div>
 
           <div className="space-y-4 px-5 py-5">
             <div className="space-y-2">
-              <Label className="text-white/70">Дата</Label>
+              <Label className="text-white/70">????</Label>
               <Input
                 type="date"
                 value={draft.dueDate}
@@ -297,57 +321,57 @@ export default function PlannerPage() {
                   setSelectedDate(event.target.value)
                   setDraft((current) => ({ ...current, dueDate: event.target.value }))
                 }}
-                className="h-12 rounded-2xl border-white/10 bg-black/20 text-white dark:border-white/10 dark:bg-black/20"
+                className="h-12 rounded-2xl border-white/10 bg-black/20 text-white"
               />
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white/70">Название задачи</Label>
+              <Label className="text-white/70">???????? ??????</Label>
               <Input
                 value={draft.title}
                 onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                placeholder="Например: выучить формулы по физике"
-                className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28 dark:border-white/10 dark:bg-black/20"
+                placeholder="????????: ??????? ??????? ?? ??????"
+                className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28"
               />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label className="text-white/70">Тема</Label>
+                <Label className="text-white/70">????</Label>
                 <Input
-                  value={draft.subject}
-                  onChange={(event) => setDraft((current) => ({ ...current, subject: event.target.value }))}
-                  placeholder="Например: контрольная по химии"
-                  className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28 dark:border-white/10 dark:bg-black/20"
+                  value={draft.topic}
+                  onChange={(event) => setDraft((current) => ({ ...current, topic: event.target.value }))}
+                  placeholder="????????: ??????????? ?? ?????"
+                  className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-white/70">Раздел</Label>
+                <Label className="text-white/70">??????</Label>
                 <select
                   value={draft.bucket}
                   onChange={(event) => setDraft((current) => ({ ...current, bucket: event.target.value as TaskBucket }))}
                   className="h-12 w-full rounded-2xl border border-white/10 bg-black/20 px-3 text-white"
                 >
-                  <option value="today">Сегодня</option>
-                  <option value="week">На неделе</option>
-                  <option value="later">Позже</option>
+                  <option value="today">???????</option>
+                  <option value="week">?? ??????</option>
+                  <option value="later">?????</option>
                 </select>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white/70">Комментарий</Label>
+              <Label className="text-white/70">???????????</Label>
               <Textarea
                 value={draft.details}
                 onChange={(event) => setDraft((current) => ({ ...current, details: event.target.value }))}
-                placeholder="Опиши задачу подробнее"
-                className="min-h-24 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28 dark:border-white/10 dark:bg-black/20"
+                placeholder="????? ?????? ?????????"
+                className="min-h-24 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28"
               />
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={saveTask} className="rounded-2xl px-6">
-                Сохранить задачу
+              <Button onClick={() => void createTask()} className="rounded-2xl px-6">
+                ????????? ??????
               </Button>
             </div>
           </div>

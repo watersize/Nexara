@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
-<rect width="256" height="256" fill="none"/>
-<path d="M66 62h59c18 0 34 7 47 20 13-13 29-20 47-20h1v131c-18 0-34 7-48 20-13-13-30-20-47-20H66V62Z" fill="#FFF9F0" stroke="#241A14" stroke-width="8" stroke-linejoin="round"/>
-<path d="M127 63v150" stroke="#241A14" stroke-width="8"/>
-<path d="M45 150h70v55H45z" fill="#FFF9F0" stroke="#241A14" stroke-width="8" stroke-linejoin="round"/>
-<path d="M45 150h70v18H45z" fill="#6DA676"/>
-<path d="M90 55 138 128 97 152 56 95Z" fill="#78A7E6" stroke="#241A14" stroke-width="6" stroke-linejoin="round"/>
-<path d="M107 49 155 124 116 149 74 88Z" fill="#75C9B7" stroke="#241A14" stroke-width="6" stroke-linejoin="round"/>
-<path d="M123 57 172 130 134 157 93 100Z" fill="#8D78D7" stroke="#241A14" stroke-width="6" stroke-linejoin="round"/>
-<circle cx="198" cy="197" r="38" fill="#18120F"/>
-<path d="M176 214c9-10 17-21 22-34 6 12 13 23 22 34" stroke="#6DA676" stroke-width="8" stroke-linecap="round"/>
-<path d="M42 82h33v52H42z" fill="#FFF9F0" stroke="#241A14" stroke-width="6" rx="8"/>
-<path d="m51 96 6 6 12-15M51 112l6 6 12-15M51 128l6 6 12-15" stroke="#6DA676" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><image href="icon.png" width="1024" height="1024"/></svg>

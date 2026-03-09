@@ -14,23 +14,37 @@ interface Message {
   text: string
 }
 
-async function buildWorkspaceContext(appState: ReturnType<typeof useAppState>, accountKey: string) {
-  const notesRaw = window.localStorage.getItem(`nexara_notes_v1:${accountKey}`)
-  const tasksRaw = window.localStorage.getItem(`nexara_tasks_v1:${accountKey}`)
-  const notes = notesRaw ? JSON.parse(notesRaw) : []
-  const tasks = tasksRaw ? JSON.parse(tasksRaw) : []
-  const lessons = await tauriInvoke<any[]>('get_schedule_for_weekday', {
-    weekNumber: appState?.defaultWeekNumber || 1,
-    weekday: appState?.defaultWeekday || 1,
-  })
+async function buildWorkspaceContext(appState: ReturnType<typeof useAppState>) {
+  const [notes, tasks, lessons] = await Promise.all([
+    tauriInvoke<any[]>('list_notes'),
+    tauriInvoke<any[]>('list_tasks'),
+    tauriInvoke<any[]>('get_schedule_for_weekday', {
+      weekNumber: appState?.defaultWeekNumber || 1,
+      weekday: appState?.defaultWeekday || 1,
+    }),
+  ])
   const textbookNames = (appState?.textbooks || []).map((book: any) => book.file_name).join(', ')
 
   return [
-    notes.length ? `Заметки:\n${notes.slice(0, 5).map((note: any) => `- ${note.title}: ${note.content || ''}`).join('\n')}` : '',
-    tasks.length ? `Задачи:\n${tasks.slice(0, 6).map((task: any) => `- ${task.title} (${task.subject || 'без предмета'})`).join('\n')}` : '',
-    Array.isArray(lessons) && lessons.length ? `Расписание на день:\n${lessons.map((lesson: any) => `- ${lesson.start_time}-${lesson.end_time} ${lesson.subject}`).join('\n')}` : '',
-    textbookNames ? `Учебники: ${textbookNames}` : '',
-  ].filter(Boolean).join('\n\n')
+    Array.isArray(notes) && notes.length
+      ? `???????:\n${notes
+          .slice(0, 5)
+          .map((note: any) => `- ${note.title}: ${String(note.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`)
+          .join('\n')}`
+      : '',
+    Array.isArray(tasks) && tasks.length
+      ? `??????:\n${tasks
+          .slice(0, 6)
+          .map((task: any) => `- ${task.title} (${task.topic || '??? ????'})`)
+          .join('\n')}`
+      : '',
+    Array.isArray(lessons) && lessons.length
+      ? `?????????? ?? ????:\n${lessons.map((lesson: any) => `- ${lesson.start_time}-${lesson.end_time} ${lesson.subject}`).join('\n')}`
+      : '',
+    textbookNames ? `????????: ${textbookNames}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 export default function ChatPage() {
@@ -39,12 +53,11 @@ export default function ChatPage() {
     ? { displayName: appState.authSession.display_name, email: appState.authSession.email }
     : undefined
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', text: 'Спроси про тему, домашнее задание, расписание, задачи, заметки или загруженный учебник.' },
+    { role: 'assistant', text: '?????? ??? ????, ???????? ???????, ??????????, ??????, ??????? ??? ??????????? ???????.' },
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const accountKey = user?.email || 'guest'
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -61,14 +74,14 @@ export default function ChatPage() {
     try {
       let context = ''
       try {
-        context = await buildWorkspaceContext(appState, accountKey)
+        context = await buildWorkspaceContext(appState)
       } catch {}
 
       const result = await tauriInvoke<any>('ask_ai', { question, context })
-      const sources = Array.isArray(result.sources) && result.sources.length ? `\n\nИсточники: ${result.sources.join(', ')}` : ''
-      setMessages((prev) => [...prev, { role: 'assistant', text: `${result.answer || 'Ответ пуст.'}${sources}` }])
+      const sources = Array.isArray(result.sources) && result.sources.length ? `\n\n?????????: ${result.sources.join(', ')}` : ''
+      setMessages((prev) => [...prev, { role: 'assistant', text: `${result.answer || '????? ????.'}${sources}` }])
     } catch (err) {
-      setMessages((prev) => [...prev, { role: 'assistant', text: `Ошибка: ${err instanceof Error ? err.message : String(err)}` }])
+      setMessages((prev) => [...prev, { role: 'assistant', text: `??????: ${err instanceof Error ? err.message : String(err)}` }])
     } finally {
       setIsLoading(false)
     }
@@ -79,15 +92,15 @@ export default function ChatPage() {
       <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-1 flex-col px-5 py-8 sm:px-8">
         <div className="mb-5 flex items-center justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">AI чат</div>
-            <h1 className="mt-2 text-3xl font-semibold text-white">Помощник по учебе</h1>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">AI ???</div>
+            <h1 className="mt-2 text-3xl font-semibold text-white">???????? ?? ?????</h1>
           </div>
           <Button
             variant="outline"
-            onClick={() => setMessages([{ role: 'assistant', text: 'История очищена. Можешь задать новый вопрос.' }])}
-            className="rounded-2xl border-white/10 bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]"
+            onClick={() => setMessages([{ role: 'assistant', text: '??????? ???????. ?????? ?????? ????? ??????.' }])}
+            className="rounded-2xl border-white/10 bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white"
           >
-            Очистить
+            ????????
           </Button>
         </div>
 
@@ -111,7 +124,7 @@ export default function ChatPage() {
               <div className="flex justify-start">
                 <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/75">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  veyo.ai думает...
+                  veyo.ai ??????...
                 </div>
               </div>
             )}
@@ -123,8 +136,8 @@ export default function ChatPage() {
           <Textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Напиши вопрос..."
-            className="min-h-[58px] rounded-2xl border-white/10 bg-white/[0.03] text-white placeholder:text-white/28 dark:border-white/10 dark:bg-white/[0.03]"
+            placeholder="?????? ??????..."
+            className="min-h-[58px] rounded-2xl border-white/10 bg-white/[0.03] text-white placeholder:text-white/28"
           />
           <Button type="submit" disabled={!input.trim() || isLoading} className="h-[58px] w-[58px] rounded-2xl">
             {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <SendIcon className="h-5 w-5" />}

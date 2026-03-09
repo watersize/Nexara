@@ -1,6 +1,6 @@
 [package]
 name = "schoolmate-proto"
-version = "0.3.0"
+version = "1.0.0"
 description = "Cross-platform school assistant prototype built with Tauri"
 authors = ["Codex"]
 edition = "2021"

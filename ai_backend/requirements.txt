@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+pydantic
+httpx
+pyTelegramBotAPI
+supabase
+langchain
+langchain-community
+langchain-huggingface
+langchain-text-splitters
+pypdf
+python-dotenv

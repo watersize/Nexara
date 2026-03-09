@@ -84,7 +84,7 @@ export default function SettingsPage() {
     }
   }, [appState, setTheme])
 
-  const version = useMemo(() => 'veyo.ai v0.3.0', [])
+  const version = useMemo(() => 'veyo.ai v1.0.0', [])
 
   const saveSettings = async (themeOverride?: 'light' | 'dark') => {
     setIsSavingSettings(true)
@@ -236,7 +236,7 @@ export default function SettingsPage() {
           </SettingsCard>
 
           <section className="flex flex-wrap gap-3">
-            <Button onClick={saveSettings} disabled={isSavingSettings} className="rounded-2xl px-6">
+            <Button onClick={() => void saveSettings()} disabled={isSavingSettings} className="rounded-2xl px-6">
               Сохранить настройки
             </Button>
             <Button variant="outline" onClick={() => tauriInvoke('logout_user').then(() => window.location.reload())} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]">

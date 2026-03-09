@@ -182,6 +182,47 @@ struct DeleteTextbookPayload {
     hash: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct UserNote {
+    id: String,
+    title: String,
+    topic: String,
+    content: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SaveNotePayload {
+    note: UserNote,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DeleteNotePayload {
+    id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct UserTask {
+    id: String,
+    title: String,
+    topic: String,
+    due_date: String,
+    details: String,
+    bucket: String,
+    done: bool,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SaveTaskPayload {
+    task: UserTask,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DeleteTaskPayload {
+    id: String,
+}
+
 #[derive(Debug, Clone)]
 struct SubjectProfile {
     teacher: String,
@@ -258,6 +299,29 @@ fn initialize_database(path: &Path) -> Result<(), String> {
             created_at TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (user_key, material_hash),
             FOREIGN KEY(material_hash) REFERENCES material_store(hash) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS user_notes (
+            user_key TEXT NOT NULL,
+            note_id TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            topic TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_key, note_id)
+        );
+        CREATE TABLE IF NOT EXISTS user_tasks (
+            user_key TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            topic TEXT NOT NULL DEFAULT '',
+            due_date TEXT NOT NULL DEFAULT '',
+            details TEXT NOT NULL DEFAULT '',
+            bucket TEXT NOT NULL DEFAULT 'today',
+            done INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_key, task_id)
         );
         INSERT OR IGNORE INTO auth_session (id, user_id, email, display_name, access_token, refresh_token, updated_at)
         VALUES (1, '', '', '', '', '', '');
@@ -654,6 +718,10 @@ async fn clear_user_data(state: &AppState, user_key: String) -> Result<(), Strin
         conn.execute("DELETE FROM schedule_cache WHERE user_key = ?1", [user_key.clone()])
             .map_err(|err| err.to_string())?;
         conn.execute("DELETE FROM subject_profiles WHERE user_key = ?1", [user_key.clone()])
+            .map_err(|err| err.to_string())?;
+        conn.execute("DELETE FROM user_notes WHERE user_key = ?1", [user_key.clone()])
+            .map_err(|err| err.to_string())?;
+        conn.execute("DELETE FROM user_tasks WHERE user_key = ?1", [user_key.clone()])
             .map_err(|err| err.to_string())?;
         conn.execute("DELETE FROM user_materials WHERE user_key = ?1", [user_key])
             .map_err(|err| err.to_string())?;
@@ -1120,6 +1188,159 @@ async fn upsert_material_link(
         )
         .map_err(|err| err.to_string())?;
         Ok(())
+    })
+    .await
+}
+
+async fn list_notes_impl(state: &AppState, user_key: String) -> Result<Vec<UserNote>, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT note_id, title, topic, content, updated_at
+                 FROM user_notes
+                 WHERE user_key = ?1
+                 ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([user_key], |row| {
+                Ok(UserNote {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    topic: row.get(2)?,
+                    content: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|err| err.to_string())
+    })
+    .await
+}
+
+async fn save_note_impl(state: &AppState, user_key: String, note: UserNote) -> Result<(), String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let created_at: String = conn
+            .query_row(
+                "SELECT created_at FROM user_notes WHERE user_key = ?1 AND note_id = ?2",
+                params![user_key.clone(), note.id.clone()],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| Local::now().to_rfc3339());
+        conn.execute(
+            "INSERT INTO user_notes (user_key, note_id, title, topic, content, updated_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(user_key, note_id) DO UPDATE SET
+                title = excluded.title,
+                topic = excluded.topic,
+                content = excluded.content,
+                updated_at = excluded.updated_at",
+            params![
+                user_key,
+                note.id,
+                note.title,
+                note.topic,
+                note.content,
+                note.updated_at,
+                created_at,
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+        Ok(())
+    })
+    .await
+}
+
+async fn delete_note_impl(state: &AppState, user_key: String, note_id: String) -> Result<bool, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let changed = conn
+            .execute(
+                "DELETE FROM user_notes WHERE user_key = ?1 AND note_id = ?2",
+                params![user_key, note_id],
+            )
+            .map_err(|err| err.to_string())?;
+        Ok(changed > 0)
+    })
+    .await
+}
+
+async fn list_tasks_impl(state: &AppState, user_key: String) -> Result<Vec<UserTask>, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT task_id, title, topic, due_date, details, bucket, done, updated_at
+                 FROM user_tasks
+                 WHERE user_key = ?1
+                 ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([user_key], |row| {
+                Ok(UserTask {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    topic: row.get(2)?,
+                    due_date: row.get(3)?,
+                    details: row.get(4)?,
+                    bucket: row.get(5)?,
+                    done: row.get::<_, i64>(6)? == 1,
+                    updated_at: row.get(7)?,
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|err| err.to_string())
+    })
+    .await
+}
+
+async fn save_task_impl(state: &AppState, user_key: String, task: UserTask) -> Result<(), String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let created_at: String = conn
+            .query_row(
+                "SELECT created_at FROM user_tasks WHERE user_key = ?1 AND task_id = ?2",
+                params![user_key.clone(), task.id.clone()],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| Local::now().to_rfc3339());
+        conn.execute(
+            "INSERT INTO user_tasks (user_key, task_id, title, topic, due_date, details, bucket, done, updated_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(user_key, task_id) DO UPDATE SET
+                title = excluded.title,
+                topic = excluded.topic,
+                due_date = excluded.due_date,
+                details = excluded.details,
+                bucket = excluded.bucket,
+                done = excluded.done,
+                updated_at = excluded.updated_at",
+            params![
+                user_key,
+                task.id,
+                task.title,
+                task.topic,
+                task.due_date,
+                task.details,
+                task.bucket,
+                if task.done { 1 } else { 0 },
+                task.updated_at,
+                created_at,
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+        Ok(())
+    })
+    .await
+}
+
+async fn delete_task_impl(state: &AppState, user_key: String, task_id: String) -> Result<bool, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let changed = conn
+            .execute(
+                "DELETE FROM user_tasks WHERE user_key = ?1 AND task_id = ?2",
+                params![user_key, task_id],
+            )
+            .map_err(|err| err.to_string())?;
+        Ok(changed > 0)
     })
     .await
 }
@@ -1808,6 +2029,83 @@ async fn notify_status(
     })
 }
 
+
+#[tauri::command]
+async fn list_notes(state: State<'_, AppState>) -> Result<Vec<UserNote>, String> {
+    let session = load_auth_session(&state).await?;
+    list_notes_impl(&state, local_user_key(session.as_ref())).await
+}
+
+#[tauri::command]
+async fn save_note(
+    payload: SaveNotePayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    save_note_impl(&state, user_key, payload.note).await?;
+    Ok(OperationResult {
+        ok: true,
+        message: "??????? ?????????".to_string(),
+    })
+}
+
+#[tauri::command]
+async fn delete_note(
+    payload: DeleteNotePayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let removed = delete_note_impl(&state, user_key, payload.id).await?;
+    Ok(OperationResult {
+        ok: removed,
+        message: if removed {
+            "??????? ???????".to_string()
+        } else {
+            "??????? ?? ???????".to_string()
+        },
+    })
+}
+
+#[tauri::command]
+async fn list_tasks(state: State<'_, AppState>) -> Result<Vec<UserTask>, String> {
+    let session = load_auth_session(&state).await?;
+    list_tasks_impl(&state, local_user_key(session.as_ref())).await
+}
+
+#[tauri::command]
+async fn save_task(
+    payload: SaveTaskPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    save_task_impl(&state, user_key, payload.task).await?;
+    Ok(OperationResult {
+        ok: true,
+        message: "?????? ?????????".to_string(),
+    })
+}
+
+#[tauri::command]
+async fn delete_task(
+    payload: DeleteTaskPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let removed = delete_task_impl(&state, user_key, payload.id).await?;
+    Ok(OperationResult {
+        ok: removed,
+        message: if removed {
+            "?????? ???????".to_string()
+        } else {
+            "?????? ?? ???????".to_string()
+        },
+    })
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1831,6 +2129,12 @@ fn main() {
             save_schedule,
             save_schedule_lessons,
             delete_schedule_lesson,
+            list_notes,
+            save_note,
+            delete_note,
+            list_tasks,
+            save_task,
+            delete_task,
             upload_textbook,
             delete_textbook,
             list_textbooks_command,

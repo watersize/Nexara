@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { tauriInvoke } from '@/lib/tauri-bridge'
+import { useAppState } from '@/lib/tauri-provider'
 
 interface NexaraHeaderProps {
   showBackButton?: boolean
@@ -81,15 +83,30 @@ function NexaraLogo({ className, src }: { className?: string; src: string }) {
 }
 
 function ThemeToggle() {
-  const { theme, setTheme, resolvedTheme } = useTheme()
+  const { setTheme, resolvedTheme } = useTheme()
+  const appState = useAppState()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  const toggleTheme = () => {
-    setTheme(resolvedTheme === 'light' ? 'dark' : 'light')
+  const toggleTheme = async () => {
+    const nextTheme = resolvedTheme === 'light' ? 'dark' : 'light'
+    setTheme(nextTheme)
+    try {
+      await tauriInvoke('save_settings', {
+        settings: {
+          theme: nextTheme === 'light' ? 'theme-light' : 'theme-dark',
+          hints_enabled: Boolean(appState?.settings?.hints_enabled),
+          enable_3d: Boolean(appState?.settings?.enable_3d),
+          reminder_hours: Number(appState?.settings?.reminder_hours ?? 18),
+          telegram_enabled: Boolean(appState?.settings?.telegram_enabled),
+          telegram_bot_token: appState?.settings?.telegram_bot_token || '',
+          telegram_chat_id: appState?.settings?.telegram_chat_id || '',
+        },
+      })
+    } catch {}
   }
 
   if (!mounted) {

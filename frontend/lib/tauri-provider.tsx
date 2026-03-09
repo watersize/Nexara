@@ -43,25 +43,23 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
         setIsReady(true)
       }
     }
-    init()
+    void init()
   }, [])
 
   useEffect(() => {
     async function pushStartupNotifications() {
       if (!appState?.authSession) return
       const email = appState.authSession.email || 'guest'
-      const taskKey = `nexara_tasks_v1:${email}`
       const todayKey = `nexara_notify_tasks:${email}:${new Date().toISOString().slice(0, 10)}`
       try {
-        const rawTasks = window.localStorage.getItem(taskKey)
-        const tasks = rawTasks ? JSON.parse(rawTasks) : []
+        const tasks = await tauriInvoke<any[]>('list_tasks')
         const dueToday = Array.isArray(tasks)
-          ? tasks.filter((task: any) => !task.done && task.dueDate === new Date().toISOString().slice(0, 10))
+          ? tasks.filter((task: any) => !task.done && (task.due_date || task.dueDate) === new Date().toISOString().slice(0, 10))
           : []
         if (appState.settings?.hints_enabled && dueToday.length && !window.sessionStorage.getItem(todayKey)) {
           await tauriInvoke('notify_status', {
             title: 'veyo.ai',
-            body: `На сегодня есть ${dueToday.length} задач`,
+            body: `?? ??????? ???? ${dueToday.length} ?????`,
           })
           window.sessionStorage.setItem(todayKey, '1')
         }
@@ -86,7 +84,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
         if (appState.settings?.enable_3d && upcoming) {
           await tauriInvoke('notify_status', {
             title: 'veyo.ai',
-            body: `Скоро ${upcoming.subject} в ${upcoming.start_time}`,
+            body: `????? ${upcoming.subject} ? ${upcoming.start_time}`,
           })
           window.sessionStorage.setItem(notifyKey, '1')
         }
@@ -99,7 +97,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
   if (!isReady) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground">Загрузка пространства...</div>
+        <div className="animate-pulse text-muted-foreground">???????? ????????????...</div>
       </div>
     )
   }

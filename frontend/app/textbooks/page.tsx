@@ -10,6 +10,9 @@ import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
 import { FileText, FileUp, Loader2, Search, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { toast } from 'sonner'
+import { Document, Page, pdfjs } from 'react-pdf'
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 
 interface MaterialRecord {
   hash: string
@@ -36,6 +39,15 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary)
 }
 
+function decodePdf(content: string) {
+  const binary = atob(content)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
 export default function TextbooksPage() {
   const appState = useAppState()
   const user = appState?.authSession
@@ -47,15 +59,17 @@ export default function TextbooksPage() {
   const [preview, setPreview] = useState<TextbookPreview | null>(null)
   const [isPreviewLoading, setIsPreviewLoading] = useState(false)
   const [zoom, setZoom] = useState(1)
-  const [pdfObjectUrl, setPdfObjectUrl] = useState('')
+  const [numPages, setNumPages] = useState(0)
+  const [viewerWidth, setViewerWidth] = useState(960)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pdfViewportRef = useRef<HTMLDivElement>(null)
 
   const loadTextbooks = async () => {
     setIsLoading(true)
     try {
       setTextbooks(await tauriInvoke<MaterialRecord[]>('list_textbooks_command'))
     } catch (error) {
-      toast.error('Не удалось загрузить учебники', {
+      toast.error('?? ??????? ????????? ????????', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
@@ -68,34 +82,15 @@ export default function TextbooksPage() {
   }, [])
 
   useEffect(() => {
-    if (preview?.kind !== 'pdf' || !preview.content) {
-      setPdfObjectUrl((current) => {
-        if (current) {
-          URL.revokeObjectURL(current)
-        }
-        return ''
-      })
-      return
+    if (!preview || preview.kind !== 'pdf') return
+    const updateWidth = () => {
+      const next = pdfViewportRef.current?.clientWidth ?? 960
+      setViewerWidth(Math.max(480, next - 48))
     }
-
-    const mime = preview.mime_type || 'application/pdf'
-    const binary = atob(preview.content)
-    const bytes = new Uint8Array(binary.length)
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index)
-    }
-
-    const nextUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
-    setPdfObjectUrl((current) => {
-      if (current) {
-        URL.revokeObjectURL(current)
-      }
-      return nextUrl
-    })
-
-    return () => {
-      URL.revokeObjectURL(nextUrl)
-    }
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    if (pdfViewportRef.current) observer.observe(pdfViewportRef.current)
+    return () => observer.disconnect()
   }, [preview])
 
   const upload = async (file: File) => {
@@ -110,10 +105,10 @@ export default function TextbooksPage() {
           mime_type: file.type || 'application/octet-stream',
         },
       })
-      toast.success('Учебник загружен')
+      toast.success('??????? ????????')
       await loadTextbooks()
     } catch (error) {
-      toast.error('Ошибка загрузки', {
+      toast.error('?????? ????????', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
@@ -124,6 +119,7 @@ export default function TextbooksPage() {
   const openPreview = async (book: MaterialRecord) => {
     setIsPreviewLoading(true)
     setPreview(null)
+    setNumPages(0)
     setZoom(1)
     try {
       const result = await tauriInvoke<TextbookPreview>('get_textbook_preview', {
@@ -131,7 +127,7 @@ export default function TextbooksPage() {
       })
       setPreview(result)
     } catch (error) {
-      toast.error('Не удалось открыть файл', {
+      toast.error('?? ??????? ??????? ????', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
@@ -142,22 +138,25 @@ export default function TextbooksPage() {
   const closePreview = () => {
     setPreview(null)
     setZoom(1)
+    setNumPages(0)
   }
 
-  const pdfSrc = useMemo(() => {
-    if (!pdfObjectUrl) {
-      return ''
+  const pdfBytes = useMemo(() => {
+    if (preview?.kind !== 'pdf' || !preview.content) return null
+    try {
+      return decodePdf(preview.content)
+    } catch {
+      return null
     }
-    return `${pdfObjectUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&zoom=${Math.round(zoom * 100)}`
-  }, [pdfObjectUrl, zoom])
+  }, [preview])
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
       <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-1 flex-col px-5 py-8 sm:px-8">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Учебники</div>
-            <h1 className="mt-2 text-3xl font-semibold text-white">Библиотека файлов</h1>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">????????</div>
+            <h1 className="mt-2 text-3xl font-semibold text-white">?????????? ??????</h1>
           </div>
           <div>
             <input
@@ -173,7 +172,7 @@ export default function TextbooksPage() {
             />
             <Button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="rounded-2xl">
               {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
-              Загрузить
+              ?????????
             </Button>
           </div>
         </div>
@@ -195,10 +194,10 @@ export default function TextbooksPage() {
                     size="sm"
                     onClick={async () => {
                       await tauriInvoke('delete_textbook', { payload: { hash: book.hash } })
-                      toast.success('Учебник удалён')
+                      toast.success('??????? ??????')
                       await loadTextbooks()
                     }}
-                    className="rounded-2xl border-white/10 bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]"
+                    className="rounded-2xl border-white/10 bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -213,19 +212,19 @@ export default function TextbooksPage() {
                   className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:text-primary/80"
                 >
                   <Search className="h-4 w-4" />
-                  Просмотреть
+                  ???????????
                 </button>
 
                 <div className="mt-5 text-xs text-white/40">
                   {book.created_at
                     ? format(new Date(book.created_at), 'd MMMM yyyy, HH:mm', { locale: ru })
-                    : 'Дата не указана'}
+                    : '???? ?? ???????'}
                 </div>
               </article>
             ))
           ) : (
             <div className="rounded-[24px] border border-white/7 bg-white/[0.02] px-5 py-10 text-sm text-white/45">
-              Пока нет загруженных учебников
+              ???? ??? ??????????? ?????????
             </div>
           )}
         </div>
@@ -233,12 +232,12 @@ export default function TextbooksPage() {
         <Dialog open={Boolean(preview) || isPreviewLoading} onOpenChange={(open) => !open && closePreview()}>
           <DialogContent
             showCloseButton={false}
-            className="h-[94vh] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-[calc(100vw-2rem)]"
+            className="h-[96vh] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-[calc(100vw-2rem)]"
           >
             <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Предпросмотр</div>
-                <div className="mt-1 text-xl font-semibold text-white">{preview?.file_name || 'Открываю файл...'}</div>
+                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">????????????</div>
+                <div className="mt-1 text-xl font-semibold text-white">{preview?.file_name || '???????? ????...'}</div>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -267,24 +266,38 @@ export default function TextbooksPage() {
               </div>
             </div>
 
-            <div className="h-[calc(94vh-80px)] overflow-hidden px-5 py-5">
+            <div ref={pdfViewportRef} className="h-[calc(96vh-80px)] overflow-hidden px-5 py-5">
               {isPreviewLoading ? (
                 <div className="flex h-full items-center justify-center gap-3 text-white/70">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  Загружаю файл...
+                  ???????? ????...
                 </div>
               ) : preview?.kind === 'pdf' ? (
-                <div className="h-full overflow-hidden rounded-[24px] border border-white/8 bg-[#f4f5f8]">
-                  {pdfSrc ? (
-                    <iframe
-                      key={pdfSrc}
-                      title={preview.file_name}
-                      src={pdfSrc}
-                      className="h-full min-h-[78vh] w-full"
-                    />
+                <div className="h-full overflow-auto rounded-[24px] border border-white/8 bg-[#edf1f7] px-6 py-6 scrollbar-none">
+                  {pdfBytes ? (
+                    <Document
+                      file={{ data: pdfBytes }}
+                      loading={<div className="py-8 text-center text-sm text-slate-600">????????????? PDF...</div>}
+                      error={<div className="py-8 text-center text-sm text-slate-600">?? ??????? ??????? PDF.</div>}
+                      onLoadSuccess={({ numPages: total }) => setNumPages(total)}
+                    >
+                      <div className="mx-auto flex w-full max-w-full flex-col items-center gap-5">
+                        {Array.from({ length: numPages }, (_, index) => (
+                          <div key={index + 1} className="overflow-hidden rounded-[18px] bg-white shadow-[0_18px_50px_-22px_rgba(15,23,42,0.45)]">
+                            <Page
+                              pageNumber={index + 1}
+                              width={Math.floor(viewerWidth * zoom)}
+                              renderAnnotationLayer={false}
+                              renderTextLayer={false}
+                              loading=""
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </Document>
                   ) : (
                     <div className="flex h-full items-center justify-center text-sm text-slate-600">
-                      Не удалось подготовить PDF для предпросмотра.
+                      ?? ??????? ??????????? PDF ??? ?????????????.
                     </div>
                   )}
                 </div>
@@ -300,7 +313,7 @@ export default function TextbooksPage() {
               ) : (
                 <div className="flex h-full items-center justify-center">
                   <div className="rounded-[24px] border border-white/8 bg-white/[0.04] px-6 py-5 text-white/75">
-                    {preview?.content || 'Файл не поддерживается для предпросмотра.'}
+                    {preview?.content || '???? ?? ?????????????? ??? ?????????????.'}
                   </div>
                 </div>
               )}

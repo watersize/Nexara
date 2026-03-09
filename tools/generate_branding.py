@@ -1,153 +1,113 @@
 from pathlib import Path
-from PIL import Image, ImageDraw
-
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
-TAURI_ICONS = ROOT / "src-tauri" / "icons"
-PUBLIC_DIR = ROOT / "frontend" / "public"
+ICON_DIR = ROOT / 'src-tauri' / 'icons'
+PUBLIC_DIR = ROOT / 'frontend' / 'public'
 
-TAURI_ICONS.mkdir(parents=True, exist_ok=True)
-PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
+SIZE = 1024
+BG = (0, 0, 0, 0)
+OUTLINE = '#2d241d'
+CREAM = '#f7f4eb'
+PEACH = '#dcc7a6'
+GREEN = '#7b9276'
+GREEN_DARK = '#647b5f'
+GRID = '#ece5d6'
+BLACK = '#221a15'
 
 
-def make_icon(size: int = 1024) -> Image.Image:
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+def rounded(draw, box, radius, fill=None, outline=None, width=1):
+    draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+
+
+def draw_icon(size=SIZE):
+    image = Image.new('RGBA', (size, size), BG)
     draw = ImageDraw.Draw(image)
+    scale = size / 1024
 
-    outline = "#241a14"
-    green = "#6DA676"
-    mint = "#75C9B7"
-    blue = "#78A7E6"
-    purple = "#8D78D7"
-    beige = "#E8C79F"
-    peach = "#F2C2A0"
-    black = "#18120F"
-    white = "#FFF9F0"
+    panel = [84 * scale, 96 * scale, 890 * scale, 892 * scale]
+    rounded(draw, panel, int(88 * scale), fill=CREAM, outline=OUTLINE, width=int(8 * scale))
 
-    s = size / 1024
-    w = max(4, int(8 * s))
-    thin = max(3, int(5 * s))
+    # Checklist card
+    rounded(draw, [34 * scale, 180 * scale, 252 * scale, 520 * scale], int(38 * scale), fill=CREAM, outline=OUTLINE, width=int(7 * scale))
+    for idx in range(4):
+        y = (230 + idx * 62) * scale
+        draw.line([(78 * scale, y), (122 * scale, y + 24 * scale), (164 * scale, y - 22 * scale)], fill=GREEN_DARK, width=int(8 * scale))
+        draw.line([(188 * scale, y), (234 * scale, y)], fill=BLACK, width=int(6 * scale))
 
-    # Open book
-    draw.rounded_rectangle((250 * s, 220 * s, 520 * s, 760 * s), radius=42 * s, outline=outline, width=w, fill=white)
-    draw.rounded_rectangle((500 * s, 220 * s, 770 * s, 760 * s), radius=42 * s, outline=outline, width=w, fill=white)
-    draw.line((510 * s, 225 * s, 510 * s, 770 * s), fill=outline, width=w)
-    draw.arc((370 * s, 690 * s, 650 * s, 870 * s), 200, 340, fill=outline, width=w)
+    # Main dark note/book shape
+    draw.rounded_rectangle([140 * scale, 170 * scale, 650 * scale, 736 * scale], radius=int(90 * scale), fill=BLACK, outline=OUTLINE, width=int(8 * scale))
+    draw.rounded_rectangle([400 * scale, 150 * scale, 840 * scale, 760 * scale], radius=int(110 * scale), fill=CREAM, outline=OUTLINE, width=int(8 * scale))
+    draw.rectangle([400 * scale, 150 * scale, 540 * scale, 760 * scale], fill=CREAM)
+    draw.rounded_rectangle([448 * scale, 212 * scale, 706 * scale, 548 * scale], radius=int(34 * scale), fill=PEACH)
+    for idx in range(4):
+        y = (144 + idx * 24) * scale
+        draw.arc([298 * scale, y, 832 * scale, y + 130 * scale], start=205, end=335, fill=OUTLINE, width=int(5 * scale))
 
-    # Page accents
-    draw.rounded_rectangle((555 * s, 305 * s, 655 * s, 505 * s), radius=18 * s, fill=beige)
-    draw.rectangle((215 * s, 300 * s, 320 * s, 600 * s), fill=(255, 249, 240, 0))
+    # Calendar card
+    rounded(draw, [52 * scale, 612 * scale, 410 * scale, 934 * scale], int(42 * scale), fill=CREAM, outline=OUTLINE, width=int(8 * scale))
+    draw.rectangle([52 * scale, 612 * scale, 410 * scale, 734 * scale], fill=GREEN)
+    for idx in range(4):
+        x = (88 + idx * 78) * scale
+        draw.line([(x, 612 * scale), (x, 934 * scale)], fill=OUTLINE, width=int(5 * scale))
+    for idx in range(1, 4):
+        y = (734 + idx * 66) * scale
+        draw.line([(52 * scale, y), (410 * scale, y)], fill=OUTLINE, width=int(5 * scale))
+    draw.rectangle([186 * scale, 734 * scale, 264 * scale, 800 * scale], fill='#f1c8aa')
+    draw.rectangle([264 * scale, 800 * scale, 342 * scale, 866 * scale], fill=GREEN)
+    for idx in range(4):
+        x = (82 + idx * 82) * scale
+        draw.line([(x, 672 * scale), (x + 34 * scale, 672 * scale)], fill=CREAM, width=int(6 * scale))
 
-    # Checklist
-    draw.rounded_rectangle((175 * s, 300 * s, 330 * s, 540 * s), radius=24 * s, outline=outline, width=thin, fill=white)
-    for y in (360, 410, 460, 510):
-        draw.line((220 * s, y * s, 240 * s, (y + 18) * s), fill=green, width=thin)
-        draw.line((240 * s, (y + 18) * s, 280 * s, (y - 22) * s), fill=green, width=thin)
-        draw.line((300 * s, y * s, 300 * s, y * s), fill=outline, width=thin)
+    # Speech bubble
+    draw.ellipse([588 * scale, 176 * scale, 980 * scale, 566 * scale], fill=CREAM, outline=OUTLINE, width=int(7 * scale))
+    draw.polygon([(650 * scale, 510 * scale), (606 * scale, 642 * scale), (748 * scale, 548 * scale)], fill=CREAM, outline=OUTLINE)
+    for idx in range(3):
+        cx = (720 + idx * 70) * scale
+        cy = 342 * scale
+        draw.ellipse([cx - 16 * scale, cy - 16 * scale, cx + 16 * scale, cy + 16 * scale], fill=BLACK)
 
-    # Calendar
-    draw.rounded_rectangle((180 * s, 560 * s, 470 * s, 800 * s), radius=24 * s, outline=outline, width=w, fill=white)
-    draw.rounded_rectangle((180 * s, 560 * s, 470 * s, 640 * s), radius=24 * s, fill=green)
-    for x in (180, 275, 370, 470):
-        draw.line((x * s, 640 * s, x * s, 800 * s), fill=outline, width=thin)
-    for y in (640, 720, 800):
-        draw.line((180 * s, y * s, 470 * s, y * s), fill=outline, width=thin)
-    draw.rectangle((210 * s, 670 * s, 270 * s, 730 * s), fill=peach)
-    draw.rectangle((275 * s, 670 * s, 340 * s, 730 * s), fill=peach)
-    draw.rectangle((340 * s, 670 * s, 405 * s, 730 * s), fill=green)
-
-    # Ribbons
-    draw.polygon(
-        [
-            (345 * s, 250 * s), (415 * s, 250 * s), (520 * s, 410 * s), (485 * s, 445 * s),
-            (390 * s, 335 * s), (332 * s, 375 * s), (305 * s, 355 * s),
-        ],
-        fill=blue,
-        outline=outline,
-    )
-    draw.polygon(
-        [
-            (392 * s, 225 * s), (445 * s, 225 * s), (565 * s, 420 * s), (530 * s, 450 * s),
-            (430 * s, 320 * s), (365 * s, 362 * s), (336 * s, 338 * s),
-        ],
-        fill=mint,
-        outline=outline,
-    )
-    draw.polygon(
-        [
-            (445 * s, 250 * s), (495 * s, 250 * s), (610 * s, 425 * s), (575 * s, 460 * s),
-            (480 * s, 345 * s), (425 * s, 385 * s), (402 * s, 365 * s),
-        ],
-        fill=purple,
-        outline=outline,
-    )
-
-    # Bookmarks
-    draw.polygon([(370 * s, 180 * s), (440 * s, 180 * s), (440 * s, 310 * s), (405 * s, 280 * s), (370 * s, 310 * s)], fill=green, outline=outline)
-    draw.polygon([(560 * s, 180 * s), (630 * s, 180 * s), (630 * s, 310 * s), (595 * s, 280 * s), (560 * s, 310 * s)], fill=purple, outline=outline)
-    draw.text((394 * s, 210 * s), "V", fill=white)
-    draw.text((586 * s, 210 * s), "A", fill=white)
-
-    # Pencil bubble
-    draw.ellipse((595 * s, 250 * s, 875 * s, 530 * s), outline=outline, width=w, fill=white)
-    draw.polygon([(625 * s, 500 * s), (675 * s, 460 * s), (655 * s, 540 * s)], outline=outline, fill=white)
-    draw.polygon([(720 * s, 320 * s), (785 * s, 385 * s), (710 * s, 460 * s), (645 * s, 395 * s)], fill=beige, outline=outline)
-    draw.line((685 * s, 430 * s, 740 * s, 375 * s), fill=outline, width=thin)
-    draw.line((735 * s, 325 * s, 785 * s, 375 * s), fill=green, width=thin)
-
-    # Brain circles
-    draw.ellipse((700 * s, 610 * s, 820 * s, 730 * s), fill=green, outline=outline, width=thin)
-    draw.ellipse((495 * s, 620 * s, 585 * s, 710 * s), fill=white, outline=outline, width=thin)
-    for cx, cy, r in [(734, 646, 14), (758, 646, 14), (722, 670, 13), (772, 670, 13)]:
-        draw.ellipse(((cx - r) * s, (cy - r) * s, (cx + r) * s, (cy + r) * s), outline=outline, width=thin, fill=white)
-    for cx, cy, r in [(527, 648, 11), (548, 648, 11), (520, 668, 10), (560, 668, 10)]:
-        draw.ellipse(((cx - r) * s, (cy - r) * s, (cx + r) * s, (cy + r) * s), outline=outline, width=thin, fill=beige)
+    # Small brain node
+    draw.ellipse([772 * scale, 450 * scale, 952 * scale, 630 * scale], fill=CREAM, outline=OUTLINE, width=int(7 * scale))
+    draw.arc([810 * scale, 486 * scale, 906 * scale, 584 * scale], start=200, end=340, fill=OUTLINE, width=int(6 * scale))
+    draw.arc([818 * scale, 470 * scale, 884 * scale, 560 * scale], start=180, end=360, fill=OUTLINE, width=int(6 * scale))
+    for idx in range(5):
+        y = (366 + idx * 34) * scale
+        draw.ellipse([868 * scale, y, 876 * scale, y + 8 * scale], fill=BLACK)
 
     # Badge
-    draw.ellipse((620 * s, 700 * s, 860 * s, 940 * s), fill=black)
-    draw.text((682 * s, 772 * s), "V.A", fill=white)
-    draw.text((735 * s, 836 * s), "I", fill=white)
+    draw.ellipse([670 * scale, 692 * scale, 956 * scale, 978 * scale], fill=BLACK)
+    draw.rectangle([802 * scale, 924 * scale, 820 * scale, 1024 * scale], fill=GREEN)
+    font_big = ImageFont.truetype('arial.ttf', int(118 * scale)) if Path('C:/Windows/Fonts/arial.ttf').exists() else ImageFont.load_default()
+    font_small = ImageFont.truetype('arial.ttf', int(70 * scale)) if Path('C:/Windows/Fonts/arial.ttf').exists() else ImageFont.load_default()
+    draw.text((724 * scale, 738 * scale), 'V', fill=CREAM, font=font_big)
+    draw.text((802 * scale, 816 * scale), 'a', fill=CREAM, font=font_small)
+    draw.text((852 * scale, 838 * scale), 'i', fill=CREAM, font=font_small)
 
     return image
 
 
-def write_svg(path: Path) -> None:
-    path.write_text(
-        """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
-<rect width="256" height="256" fill="none"/>
-<path d="M66 62h59c18 0 34 7 47 20 13-13 29-20 47-20h1v131c-18 0-34 7-48 20-13-13-30-20-47-20H66V62Z" fill="#FFF9F0" stroke="#241A14" stroke-width="8" stroke-linejoin="round"/>
-<path d="M127 63v150" stroke="#241A14" stroke-width="8"/>
-<path d="M45 150h70v55H45z" fill="#FFF9F0" stroke="#241A14" stroke-width="8" stroke-linejoin="round"/>
-<path d="M45 150h70v18H45z" fill="#6DA676"/>
-<path d="M90 55 138 128 97 152 56 95Z" fill="#78A7E6" stroke="#241A14" stroke-width="6" stroke-linejoin="round"/>
-<path d="M107 49 155 124 116 149 74 88Z" fill="#75C9B7" stroke="#241A14" stroke-width="6" stroke-linejoin="round"/>
-<path d="M123 57 172 130 134 157 93 100Z" fill="#8D78D7" stroke="#241A14" stroke-width="6" stroke-linejoin="round"/>
-<circle cx="198" cy="197" r="38" fill="#18120F"/>
-<path d="M176 214c9-10 17-21 22-34 6 12 13 23 22 34" stroke="#6DA676" stroke-width="8" stroke-linecap="round"/>
-<path d="M42 82h33v52H42z" fill="#FFF9F0" stroke="#241A14" stroke-width="6" rx="8"/>
-<path d="m51 96 6 6 12-15M51 112l6 6 12-15M51 128l6 6 12-15" stroke="#6DA676" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>""",
-        encoding="utf-8",
+def save_outputs(image):
+    ICON_DIR.mkdir(parents=True, exist_ok=True)
+    PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
+
+    icon_png = ICON_DIR / 'icon.png'
+    icon_ico = ICON_DIR / 'icon.ico'
+    icon_svg = PUBLIC_DIR / 'icon.svg'
+    apple_icon = PUBLIC_DIR / 'apple-icon.png'
+    light_icon = PUBLIC_DIR / 'icon-light-32x32.png'
+    dark_icon = PUBLIC_DIR / 'icon-dark-32x32.png'
+
+    image.save(icon_png)
+    image.save(icon_ico, sizes=[(16, 16), (32, 32), (48, 48), (128, 128), (256, 256)])
+    image.resize((180, 180), Image.LANCZOS).save(apple_icon)
+    image.resize((32, 32), Image.LANCZOS).save(light_icon)
+    image.resize((32, 32), Image.LANCZOS).save(dark_icon)
+    icon_svg.write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SIZE} {SIZE}"><image href="icon.png" width="{SIZE}" height="{SIZE}"/></svg>',
+        encoding='utf-8',
     )
 
 
-def main() -> None:
-    base = make_icon(1024)
-
-    png_path = TAURI_ICONS / "icon.png"
-    ico_path = TAURI_ICONS / "icon.ico"
-    base.save(png_path)
-    base.resize((256, 256), Image.LANCZOS).save(
-        ico_path,
-        format="ICO",
-        sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
-    )
-
-    base.resize((180, 180), Image.LANCZOS).save(PUBLIC_DIR / "apple-icon.png")
-    base.resize((32, 32), Image.LANCZOS).save(PUBLIC_DIR / "icon-light-32x32.png")
-    base.resize((32, 32), Image.LANCZOS).save(PUBLIC_DIR / "icon-dark-32x32.png")
-    write_svg(PUBLIC_DIR / "icon.svg")
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    save_outputs(draw_icon())

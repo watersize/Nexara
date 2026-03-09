@@ -6,15 +6,12 @@ import { WorkspaceCard } from '@/components/workspace-card'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
 
-const NOTES_STORAGE_KEY = 'nexara_notes_v1'
-const TASKS_STORAGE_KEY = 'nexara_tasks_v1'
-
 function createWorkspaces() {
   return [
     {
       id: 'schedule',
-      title: 'Расписание',
-      description: 'Недельное расписание, ручной конструктор уроков и быстрый доступ к материалам дня.',
+      title: '??????????',
+      description: '????????? ??????????, ??????????? ?????? ? ??????? ?????? ? ?????????? ???.',
       href: '/schedule',
       icon: (
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -29,8 +26,8 @@ function createWorkspaces() {
     },
     {
       id: 'notebook',
-      title: 'Блокнот',
-      description: 'Заметки по предметам, конспекты и быстрые черновики в одном месте.',
+      title: '???????',
+      description: '???????, ???????, ????, ??????? ? ??????????? ????????? ? ????? ?????.',
       href: '/notebook',
       icon: (
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -43,8 +40,8 @@ function createWorkspaces() {
     },
     {
       id: 'chat',
-      title: 'AI помощник',
-      description: 'Вопросы по темам, задачам и загруженным учебникам через встроенный чат.',
+      title: 'AI ???',
+      description: '??????? ?? ?????, ????????, ?????????? ? ??????????? ?????????? ? ????? ????.',
       href: '/chat',
       icon: (
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -58,8 +55,8 @@ function createWorkspaces() {
     },
     {
       id: 'textbooks',
-      title: 'Учебники',
-      description: 'PDF-библиотека и локальная база материалов для ответов по учебнику.',
+      title: '????????',
+      description: '?????????? PDF ? TXT ? ??????????????, ??????? ? ????????? ????? ??????????.',
       href: '/textbooks',
       icon: (
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -70,8 +67,8 @@ function createWorkspaces() {
     },
     {
       id: 'planner',
-      title: 'Планировщик',
-      description: 'Обычный планировщик задач: дедлайны, приоритеты и список дел на день и неделю.',
+      title: '???????????',
+      description: '??????? ??????????? ????? ? ??????????, ????????? ? ??????????? ?? ???????.',
       href: '/planner',
       icon: (
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -84,8 +81,8 @@ function createWorkspaces() {
     },
     {
       id: 'settings',
-      title: 'Настройки',
-      description: 'Тема, уведомления, профиль и параметры приложения в одном разделе.',
+      title: '?????????',
+      description: '????, ???????????, ??????? ? ????????? ?????????? ? ????? ???????.',
       href: '/settings',
       icon: (
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -96,16 +93,6 @@ function createWorkspaces() {
       gradient: 'from-muted to-muted/50',
     },
   ]
-}
-
-function readCountFromStorage(key: string) {
-  try {
-    const raw = window.localStorage.getItem(key)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed.length : 0
-  } catch {
-    return 0
-  }
 }
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
@@ -123,27 +110,28 @@ export default function HomePage() {
   const [notesCount, setNotesCount] = useState(0)
   const [tasksCount, setTasksCount] = useState(0)
   const [lessonsToday, setLessonsToday] = useState(0)
-  const accountKey = appState?.authSession?.email || 'guest'
 
   useEffect(() => {
-    setNotesCount(readCountFromStorage(`${NOTES_STORAGE_KEY}:${accountKey}`))
-    setTasksCount(readCountFromStorage(`${TASKS_STORAGE_KEY}:${accountKey}`))
-  }, [accountKey])
-
-  useEffect(() => {
-    async function loadTodayLessons() {
-      if (!appState) return
+    async function loadCounts() {
       try {
-        const items = await tauriInvoke<any[]>('get_schedule_for_weekday', {
-          weekNumber: appState.defaultWeekNumber,
-          weekday: appState.defaultWeekday,
-        })
-        setLessonsToday(Array.isArray(items) ? items.length : 0)
+        const [notes, tasks, lessons] = await Promise.all([
+          tauriInvoke<any[]>('list_notes'),
+          tauriInvoke<any[]>('list_tasks'),
+          tauriInvoke<any[]>('get_schedule_for_weekday', {
+            weekNumber: appState?.defaultWeekNumber || 1,
+            weekday: appState?.defaultWeekday || 1,
+          }),
+        ])
+        setNotesCount(Array.isArray(notes) ? notes.length : 0)
+        setTasksCount(Array.isArray(tasks) ? tasks.filter((task) => !task.done).length : 0)
+        setLessonsToday(Array.isArray(lessons) ? lessons.length : 0)
       } catch {
+        setNotesCount(0)
+        setTasksCount(0)
         setLessonsToday(0)
       }
     }
-    void loadTodayLessons()
+    void loadCounts()
   }, [appState])
 
   const textbooksCount = appState?.textbooks?.length ?? 0
@@ -157,32 +145,32 @@ export default function HomePage() {
           <section className="mb-16 text-center animate-slide-up">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
               <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-              School Workspace
+              veyo.ai workspace
             </div>
 
             <h1 className="mb-6 text-4xl font-bold tracking-tight text-foreground text-balance sm:text-5xl lg:text-6xl">
-              Твоё учебное
+              ???? ???????
               <span className="block bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
-                пространство
+                ????????????
               </span>
             </h1>
 
             <p className="mx-auto max-w-2xl text-lg leading-relaxed text-muted-foreground text-pretty sm:text-xl">
-              Расписание, учебники, чат и персональный ритм подготовки. Всё в одном месте, без лишних переключений.
+              ??????????, ????????, AI-???, ??????? ? ??????????? ?????. ??? ? ????? ????? ??? ?????? ????????????.
             </p>
           </section>
 
           <section className="mb-12 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatCard label="Уроков сегодня" value={lessonsToday} />
-            <StatCard label="Учебников" value={textbooksCount} />
-            <StatCard label="Заметок" value={notesCount} />
-            <StatCard label="Задач" value={tasksCount} />
+            <StatCard label="?????? ???????" value={lessonsToday} />
+            <StatCard label="?????????" value={textbooksCount} />
+            <StatCard label="???????" value={notesCount} />
+            <StatCard label="???????? ?????" value={tasksCount} />
           </section>
 
           <section className="mb-16">
             <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-foreground">Рабочие пространства</h2>
-              <span className="text-sm text-muted-foreground">Выбери инструмент</span>
+              <h2 className="text-xl font-semibold text-foreground">??????? ????????????</h2>
+              <span className="text-sm text-muted-foreground">?????? ??????????</span>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6">
@@ -201,7 +189,7 @@ export default function HomePage() {
       <footer className="border-t border-border/50 px-4 py-8 sm:px-6">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 text-sm text-muted-foreground sm:flex-row">
           <span>veyo.ai</span>
-          <span>Версия 0.3.0</span>
+          <span>?????? 1.0.0</span>
         </div>
       </footer>
     </div>
