@@ -1,6 +1,6 @@
-# 🌊 ＶＥＹＯ．ＡＩ // Ｔｈｅ Ｎｅｘｔ Ｇｅｎｅｒａｔｉｏｎ Ｗｏｒｋｓｐａｃｅ
+# 🌊ＶＥＹＯ．ＡＩ// Ｔｈｅ Ｎｅｘｔ Ｇｅｎｅｒａｔｉｏｎ Ｗｏｒｋｓｐａｃｅ
 ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-> **🚀 Your local-first, AI-augmented digital sanctuary.**
+> **Your local-first, AI-augmented digital sanctuary.**
 > 
 > *veyo.ai is a revolutionary desktop ecosystem that unifies your entire study and research life into a single, high-performance interface. No cloud dependency. No privacy compromises. Just pure cognitive acceleration.*
 
