@@ -1,534 +1,380 @@
-﻿'use client'
+'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { format, isToday, isYesterday } from 'date-fns'
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { jsPDF } from 'jspdf'
-import { toPng } from 'html-to-image'
+import { useTheme } from 'next-themes'
+import { Eye, EyeOff, FileOutput, Ghost, Grid3x3, ImagePlus, Layers3, Lock, NotebookPen, PenTool, Plus, RotateCw, Ruler, Search, Sparkles, Table2, Unlock, Workflow } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
-import {
-  ArrowLeft,
-  Bold,
-  ChartColumn,
-  ChevronLeft,
-  Download,
-  Eraser,
-  ImagePlus,
-  Italic,
-  List,
-  ListOrdered,
-  Paintbrush,
-  Plus,
-  SquarePen,
-  Table2,
-  Trash2,
-  Underline,
-} from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
-interface NoteItem {
+const PREFIX = '__VEYO_HYBRID_NOTE__::'
+const MIN = 44
+
+type Point = { x: number; y: number }
+type NoteObject = {
   id: string
-  title: string
-  topic: string
-  content: string
-  updatedAt: string
-  createdAt: string
+  type: 'text' | 'image' | 'cad' | 'stroke' | 'table'
+  name: string
+  x: number
+  y: number
+  w: number
+  h: number
+  rot: number
+  z: number
+  locked: boolean
+  visible: boolean
+  opacity: number
+  text?: string
+  variant?: 'title' | 'body' | 'callout'
+  src?: string
+  caption?: string
+  traceable?: boolean
+  shape?: 'rectangle' | 'circle' | 'arc' | 'polygon'
+  units?: 'px' | 'mm'
+  dash?: boolean
+  stroke?: string
+  fill?: string
+  view?: string
+  points?: Point[]
+  cells?: string[][]
 }
 
-type BuilderMode = 'chart' | 'table' | null
-type ChartType = 'line' | 'bar' | 'pie'
-
-const FONT_OPTIONS = ['SF Pro Text', 'Inter', 'Georgia', 'Avenir Next', 'Courier New']
-const FONT_SIZE_OPTIONS = [14, 16, 18, 20, 24, 28]
-
-function stripHtml(html: string) {
-  if (typeof window === 'undefined') return html
-  const div = window.document.createElement('div')
-  div.innerHTML = html || ''
-  return (div.textContent || div.innerText || '').trim()
+type NoteDoc = {
+  canvas: { w: number; h: number }
+  prefs: { grid: 'off' | 'orthographic' | 'isometric'; dims: boolean; dimMode: boolean; ghost: boolean }
+  objects: NoteObject[]
 }
 
-function toNoteItem(note: any): NoteItem {
-  const stamp = String(note.created_at || note.createdAt || note.updated_at || note.updatedAt || new Date().toISOString())
+type NoteRecord = { id: string; title: string; topic: string; createdAt: string; updatedAt: string; doc: NoteDoc }
+
+const codeSnippet = `export function SelectableCadObject({ object, selected, showDimensions, onResize, onDimensionInput }) {
+  return (
+    <div style={{ left: object.x, top: object.y, width: object.w, height: object.h }}>
+      <CadShapeSvg object={object} />
+      {selected ? <BoundingHandles onResize={onResize} /> : null}
+      {selected && showDimensions ? <DimensionLines valueX={object.w} valueY={object.h} onInput={onDimensionInput} /> : null}
+    </div>
+  )
+}`
+
+const hierarchy = [
+  'AppShell -> fixed workspace chrome',
+  'NotebookPage -> note selection, preview stage, editor state',
+  'Preview pane -> second-click transition into editor',
+  'Shared object canvas -> text, trace, images, CAD, tables',
+  'Layers panel -> visibility, locking, z-index awareness',
+  'Rust bridge -> geometry solving and vector PDF export',
+]
+
+const syncNotes = [
+  'Text blocks and drawings share one ordered object array.',
+  'Trace strokes sit above or below text by z-index, not by separate DOM trees.',
+  'The same serialized document can be consumed by Rust for dimension recompute.',
+]
+
+const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`
+const sortObjects = (objects: NoteObject[]) => [...objects].sort((a, b) => a.z - b.z)
+const snap = (value: number, isometric = false) => Math.round(value / (isometric ? 24 : 20)) * (isometric ? 24 : 20)
+
+const svgImage = (kind: 'book' | 'diagram') => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(kind === 'book' ? `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420"><rect width="640" height="420" rx="28" fill="#eef2fb"/><rect x="40" y="44" width="560" height="328" rx="20" fill="#fff" stroke="#adc0e7" stroke-width="3"/><line x1="84" y1="106" x2="548" y2="106" stroke="#b7c8e5" stroke-width="2"/><line x1="84" y1="154" x2="548" y2="154" stroke="#d0dbef" stroke-width="2"/><line x1="84" y1="202" x2="548" y2="202" stroke="#d0dbef" stroke-width="2"/><line x1="84" y1="250" x2="548" y2="250" stroke="#d0dbef" stroke-width="2"/><circle cx="496" cy="232" r="38" fill="none" stroke="#4c74ff" stroke-width="6"/><path d="M184 302 C242 258 318 258 376 304" fill="none" stroke="#23324a" stroke-width="5"/></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="240"><rect width="420" height="240" rx="24" fill="#0d1628"/><rect x="36" y="34" width="118" height="54" rx="16" fill="#162544" stroke="#82a8ff"/><rect x="244" y="34" width="136" height="54" rx="16" fill="#0f2231" stroke="#93ffd1"/><rect x="136" y="146" width="148" height="54" rx="16" fill="#251b31" stroke="#ffd87e"/><path d="M154 61 H244" stroke="#82a8ff" stroke-width="3" stroke-dasharray="8 6"/><path d="M210 88 V146" stroke="#ffd87e" stroke-width="3"/></svg>`)}`
+
+const stripHtml = (html: string) => typeof window === 'undefined' ? html : ((node) => ((node.innerHTML = html || ''), (node.textContent || '').replace(/\s+/g, ' ').trim()))(document.createElement('div'))
+
+function createDoc(title: string): NoteDoc {
   return {
-    id: String(note.id || note.note_id || `note-${Date.now()}`),
-    title: String(note.title || 'Новая заметка'),
-    topic: String(note.topic || note.subject || ''),
-    content: String(note.content || '<p></p>'),
-    updatedAt: String(note.updated_at || note.updatedAt || stamp),
-    createdAt: stamp,
+    canvas: { w: 1180, h: 900 },
+    prefs: { grid: 'orthographic', dims: true, dimMode: true, ghost: true },
+    objects: [
+      { id: makeId('text'), type: 'text', name: 'Title', x: 72, y: 72, w: 390, h: 120, rot: 0, z: 1, locked: false, visible: true, opacity: 1, variant: 'title', text: `${title}\nHybrid note-taking board with text, trace and CAD.` },
+      { id: makeId('body'), type: 'text', name: 'Body', x: 74, y: 224, w: 410, h: 160, rot: 0, z: 2, locked: false, visible: true, opacity: 1, variant: 'body', text: 'All elements are objects. Draw over text, resize technical shapes, and keep one source of truth for preview, editor and PDF export.' },
+      { id: makeId('img'), type: 'image', name: 'Textbook trace', x: 560, y: 82, w: 500, h: 306, rot: 0, z: 3, locked: false, visible: true, opacity: 1, src: svgImage('book'), caption: 'Ghost trace', traceable: true },
+      { id: makeId('cad'), type: 'cad', name: 'Side View', x: 632, y: 454, w: 240, h: 106, rot: 0, z: 4, locked: false, visible: true, opacity: 1, shape: 'rectangle', units: 'mm', stroke: '#86adff', fill: 'rgba(98,147,255,.14)', view: 'Side View' },
+      { id: makeId('cad'), type: 'cad', name: 'Top View', x: 928, y: 442, w: 128, h: 128, rot: 0, z: 5, locked: false, visible: true, opacity: 1, shape: 'circle', units: 'mm', stroke: '#9bffd9', fill: 'rgba(86,214,170,.12)', dash: true, view: 'Top View' },
+      { id: makeId('stroke'), type: 'stroke', name: 'Trace', x: 718, y: 178, w: 216, h: 132, rot: -5, z: 6, locked: false, visible: true, opacity: 1, stroke: '#ffd87e', points: [{ x: 0.02, y: 0.42 }, { x: 0.18, y: 0.22 }, { x: 0.48, y: 0.1 }, { x: 0.78, y: 0.46 }, { x: 0.98, y: 0.8 }] },
+      { id: makeId('table'), type: 'table', name: 'Layers', x: 82, y: 462, w: 430, h: 202, rot: 0, z: 7, locked: false, visible: true, opacity: 1, cells: [['Layer', 'Role'], ['Text', 'Readable content'], ['Trace', 'Annotations'], ['CAD', 'Geometry']] },
+    ],
   }
 }
 
-function noteDateLabel(dateValue: string) {
-  const date = new Date(dateValue)
-  if (isToday(date)) return 'Сегодня'
-  if (isYesterday(date)) return 'Вчера'
-  return format(date, 'd MMMM yyyy', { locale: ru })
-}
-
-function buildChartDataUrl(type: ChartType, title: string, rawValues: string) {
-  const values = rawValues
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item, index) => {
-      const [labelPart, valuePart] = item.includes(':') ? item.split(':') : [`${index + 1}`, item]
-      return { label: labelPart.trim(), value: Math.max(0, Number(valuePart.trim()) || 0) }
-    })
-
-  if (!values.length) return ''
-  const palette = ['#5b8cff', '#00c2a8', '#ff9f43', '#c084fc', '#fb7185']
-
-  if (type === 'pie') {
-    const radius = 98
-    const size = 300
-    const total = values.reduce((sum, item) => sum + item.value, 0) || 1
-    let angle = -Math.PI / 2
-    const slices = values
-      .map((item, index) => {
-        const delta = (item.value / total) * Math.PI * 2
-        const x1 = size / 2 + Math.cos(angle) * radius
-        const y1 = size / 2 + Math.sin(angle) * radius
-        angle += delta
-        const x2 = size / 2 + Math.cos(angle) * radius
-        const y2 = size / 2 + Math.sin(angle) * radius
-        const largeArc = delta > Math.PI ? 1 : 0
-        return `<path d="M150 150 L${x1.toFixed(2)} ${y1.toFixed(2)} A${radius} ${radius} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${palette[index % palette.length]}" />`
-      })
-      .join('')
-    const legend = values
-      .map((item, index) => `<g transform="translate(22 ${220 + index * 22})"><rect width="12" height="12" rx="3" fill="${palette[index % palette.length]}" /><text x="18" y="11" fill="#dbe7ff" font-size="12">${item.label}: ${item.value}</text></g>`)
-      .join('')
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="320" viewBox="0 0 300 320"><rect width="300" height="320" rx="28" fill="#0b1226" /><text x="22" y="28" fill="#f8fbff" font-size="18" font-weight="700">${title || 'Диаграмма'}</text>${slices}<circle cx="150" cy="150" r="40" fill="#0b1226" />${legend}</svg>`
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+const parseDoc = (raw: string, title: string) => {
+  if (raw.startsWith(PREFIX)) {
+    try { return JSON.parse(raw.slice(PREFIX.length)) as NoteDoc } catch {}
   }
-
-  const width = 720
-  const height = 320
-  const padding = 42
-  const max = Math.max(...values.map((item) => item.value), 1)
-  const step = values.length > 1 ? (width - padding * 2) / (values.length - 1) : 0
-  const points = values
-    .map((item, index) => {
-      const x = padding + step * index
-      const y = height - padding - ((height - padding * 2) * item.value) / max
-      return `${x},${y}`
-    })
-    .join(' ')
-  const bars = values
-    .map((item, index) => {
-      const x = padding + index * ((width - padding * 2) / values.length) + 12
-      const barWidth = Math.max(36, (width - padding * 2) / values.length - 24)
-      const y = height - padding - ((height - padding * 2) * item.value) / max
-      return `<rect x="${x}" y="${y}" width="${barWidth}" height="${height - padding - y}" rx="14" fill="#5b8cff" fill-opacity="0.92" />`
-    })
-    .join('')
-  const labels = values
-    .map((item, index) => {
-      const x = type === 'bar' ? padding + index * ((width - padding * 2) / values.length) + 38 : padding + step * index
-      return `<text x="${x}" y="${height - 14}" text-anchor="middle" fill="#8da2c0" font-size="12">${item.label}</text>`
-    })
-    .join('')
-  const valuesText = values
-    .map((item, index) => {
-      const x = type === 'bar' ? padding + index * ((width - padding * 2) / values.length) + 38 : padding + step * index
-      const y = type === 'bar' ? height - padding - ((height - padding * 2) * item.value) / max - 10 : height - padding - ((height - padding * 2) * item.value) / max - 12
-      return `<text x="${x}" y="${y}" text-anchor="middle" fill="#dbe7ff" font-size="12">${item.value}</text>`
-    })
-    .join('')
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" rx="28" fill="#0b1226" /><text x="24" y="30" fill="#f8fbff" font-size="22" font-weight="700">${title || 'Диаграмма'}</text><line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#223250" stroke-width="2" /><line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#223250" stroke-width="2" />${type === 'bar' ? bars : `<polyline fill="none" stroke="#5b8cff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" points="${points}" />`}${type === 'line' ? values.map((item, index) => { const x = padding + step * index; const y = height - padding - ((height - padding * 2) * item.value) / max; return `<circle cx="${x}" cy="${y}" r="6" fill="#5b8cff" />` }).join('') : ''}${labels}${valuesText}</svg>`
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  const doc = createDoc(title)
+  doc.objects.push({ id: makeId('legacy'), type: 'text', name: 'Legacy', x: 76, y: 708, w: 520, h: 124, rot: 0, z: 9, locked: false, visible: true, opacity: 1, variant: 'body', text: stripHtml(raw) || 'Legacy note migrated into object mode.' })
+  return doc
 }
 
-function buildTableHtml(raw: string) {
-  const rows = raw.split('\n').map((row) => row.split(',').map((cell) => cell.trim())).filter((row) => row.some(Boolean))
-  if (!rows.length) return ''
-  return `<div class="my-5 overflow-hidden rounded-[22px] border border-white/10 bg-white/[0.04]"><table style="width:100%; border-collapse:collapse; color:#f8fafc; font-size:15px;"><tbody>${rows.map((row, rowIndex) => `<tr>${row.map((cell) => `<${rowIndex === 0 ? 'th' : 'td'} style="border:1px solid rgba(255,255,255,.08); padding:12px 14px; text-align:left; background:${rowIndex === 0 ? 'rgba(91,140,255,.18)' : 'transparent'};">${cell || '&nbsp;'}</${rowIndex === 0 ? 'th' : 'td'}>`).join('')}</tr>`).join('')}</tbody></table></div>`
+const serialize = (doc: NoteDoc) => `${PREFIX}${JSON.stringify(doc)}`
+const snippet = (doc: NoteDoc) => {
+  const text = doc.objects.filter((object) => object.type === 'text').map((object) => object.text || '').join(' ').trim()
+  return text ? `${text.slice(0, 150)}${text.length > 150 ? '...' : ''}` : `CAD ${doc.objects.filter((object) => object.type === 'cad').length}, trace ${doc.objects.filter((object) => object.type === 'stroke').length}`
+}
+
+const exportNotePdf = (note: NoteRecord, dark: boolean) => {
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [700, 1040] })
+  pdf.setFillColor(dark ? '#0b0d17' : '#f5f1e8')
+  pdf.rect(0, 0, 1040, 700, 'F')
+  sortObjects(note.doc.objects).filter((object) => object.visible).forEach((object) => {
+    if (object.type === 'text') {
+      pdf.setTextColor(dark ? '#f4f7ff' : '#182235')
+      pdf.setFontSize(object.variant === 'title' ? 20 : 12)
+      pdf.text(pdf.splitTextToSize(object.text || '', object.w * 0.7), object.x * 0.7, object.y * 0.7 + 20)
+    }
+    if (object.type === 'cad') {
+      pdf.setDrawColor(object.stroke || '#86adff')
+      object.dash ? pdf.setLineDashPattern([6, 4], 0) : pdf.setLineDashPattern([], 0)
+      if (object.shape === 'circle') pdf.ellipse((object.x + object.w / 2) * 0.7, (object.y + object.h / 2) * 0.7, object.w * 0.25, object.h * 0.25)
+      else pdf.roundedRect(object.x * 0.7, object.y * 0.7, object.w * 0.7, object.h * 0.7, 12, 12)
+      if (note.doc.prefs.dims) {
+        pdf.setTextColor('#d39b2c')
+        pdf.setFontSize(10)
+        pdf.text(`${Math.round(object.w)}${object.units}`, (object.x + object.w / 2) * 0.7, (object.y - 12) * 0.7, { align: 'center' })
+      }
+    }
+  })
+  pdf.save(`${note.title || 'hybrid-note'}.pdf`)
+}
+
+function renderCadShape(object: NoteObject) {
+  if (object.shape === 'circle') return <ellipse cx="50%" cy="50%" rx="38%" ry="38%" fill={object.fill} stroke={object.stroke} strokeDasharray={object.dash ? '10 7' : undefined} />
+  if (object.shape === 'arc') return <path d="M 18 84 A 32 32 0 0 1 82 84" fill="none" stroke={object.stroke} strokeDasharray={object.dash ? '10 7' : undefined} />
+  if (object.shape === 'polygon') return <polygon points="20 50, 38 16, 72 16, 90 50, 72 84, 38 84" fill={object.fill} stroke={object.stroke} />
+  return <rect x="14%" y="22%" width="72%" height="56%" rx="18" fill={object.fill} stroke={object.stroke} strokeDasharray={object.dash ? '10 7' : undefined} />
 }
 
 export default function NotebookPage() {
   const appState = useAppState()
+  const { resolvedTheme } = useTheme()
+  const dark = resolvedTheme !== 'light'
   const user = appState?.authSession ? { displayName: appState.authSession.display_name, email: appState.authSession.email } : undefined
-  const [notes, setNotes] = useState<NoteItem[]>([])
+  const palette = dark
+    ? { page: '#0b0d17', shell: 'linear-gradient(180deg,#0d1221,#070910)', panel: 'rgba(14,18,31,.92)', soft: 'rgba(255,255,255,.045)', strong: 'rgba(18,23,39,.98)', border: 'rgba(173,190,255,.16)', text: '#f4f7ff', muted: 'rgba(244,247,255,.62)', accent: '#79a7ff', accentSoft: 'rgba(121,167,255,.12)', dim: '#ffd87e', ghost: 'rgba(121,167,255,.28)' }
+    : { page: '#f5f1e8', shell: 'linear-gradient(180deg,#fff,#f1e8d8)', panel: 'rgba(255,252,248,.94)', soft: 'rgba(255,255,255,.72)', strong: 'rgba(255,255,255,.98)', border: 'rgba(73,82,108,.15)', text: '#182235', muted: 'rgba(24,34,53,.62)', accent: '#2b5cff', accentSoft: 'rgba(43,92,255,.12)', dim: '#a16a08', ghost: 'rgba(31,88,255,.2)' }
+  const [notes, setNotes] = useState<NoteRecord[]>([])
   const [search, setSearch] = useState('')
-  const [activeNoteId, setActiveNoteId] = useState('')
-  const [isEditorOpen, setIsEditorOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0])
-  const [fontSize, setFontSize] = useState(18)
-  const [showDrawingPad, setShowDrawingPad] = useState(false)
-  const [builderMode, setBuilderMode] = useState<BuilderMode>(null)
-  const [chartTitle, setChartTitle] = useState('Новая диаграмма')
-  const [chartType, setChartType] = useState<ChartType>('line')
-  const [chartValues, setChartValues] = useState('Янв:12, Фев:18, Мар:15, Апр:22')
-  const [tableSource, setTableSource] = useState('Показатель,Значение\nЗадачи,12\nУроки,28')
-  const [selectedImageWidth, setSelectedImageWidth] = useState(80)
-  const editorRef = useRef<HTMLDivElement>(null)
-  const editorFrameRef = useRef<HTMLDivElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
-  const drawingCanvasRef = useRef<HTMLCanvasElement>(null)
-  const drawingContextRef = useRef<CanvasRenderingContext2D | null>(null)
-  const selectedImageRef = useRef<HTMLImageElement | null>(null)
-  const saveTimeoutRef = useRef<number | null>(null)
-  const isDrawingRef = useRef(false)
-
-  const loadNotes = async () => {
-    setIsLoading(true)
-    try {
-      const result = await tauriInvoke<any[]>('list_notes')
-      const mapped = result.map(toNoteItem)
-      setNotes(mapped)
-      if (!activeNoteId && mapped[0]) setActiveNoteId(mapped[0].id)
-    } catch (error) {
-      toast.error('Не удалось загрузить заметки', {
-        description: error instanceof Error ? error.message : String(error),
-      })
-      setNotes([])
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const [activeId, setActiveId] = useState('')
+  const [stage, setStage] = useState<'preview' | 'editor'>('preview')
+  const [tool, setTool] = useState<'insert' | 'draw' | 'table' | 'diagram' | 'drafting'>('drafting')
+  const [selectedId, setSelectedId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [drawColor, setDrawColor] = useState('#ffd87e')
+  const [imageUrl, setImageUrl] = useState('')
+  const [tableDraft, setTableDraft] = useState('Layer,Role\nText,Readable\nTrace,Overlay\nCAD,Geometry')
+  const [draft, setDraft] = useState({ shape: 'rectangle' as NoteObject['shape'], units: 'mm' as 'mm' | 'px', x: 620, y: 420, w: 220, h: 110, view: 'Side View', dash: false })
+  const [tempStroke, setTempStroke] = useState<Point[]>([])
+  const deferredSearch = useDeferredValue(search)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const saveRef = useRef<number | null>(null)
+  const drawSessionRef = useRef<Point[]>([])
 
   useEffect(() => {
-    void loadNotes()
+    ;(async () => {
+      try {
+        const rows = await tauriInvoke<any[]>('list_notes')
+        const mapped = (Array.isArray(rows) ? rows : []).map((row) => ({
+          id: String(row.id || makeId('note')),
+          title: String(row.title || 'Hybrid note'),
+          topic: String(row.topic || row.subject || 'Engineering canvas'),
+          createdAt: String(row.created_at || row.updated_at || new Date().toISOString()),
+          updatedAt: String(row.updated_at || row.created_at || new Date().toISOString()),
+          doc: parseDoc(String(row.content || ''), String(row.title || 'Hybrid note')),
+        }))
+        setNotes(mapped)
+        setActiveId(mapped[0]?.id || '')
+      } catch (error) {
+        toast.error('Не удалось загрузить блокнот', { description: error instanceof Error ? error.message : String(error) })
+      } finally {
+        setLoading(false)
+      }
+    })()
   }, [])
 
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current)
-    }
+  useEffect(() => () => {
+    if (saveRef.current) window.clearTimeout(saveRef.current)
   }, [])
 
-  const filteredNotes = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    const source = [...notes].sort((left, right) => +new Date(right.createdAt) - +new Date(left.createdAt))
-    if (!query) return source
-    return source.filter((note) => `${note.title} ${note.topic} ${stripHtml(note.content)}`.toLowerCase().includes(query))
-  }, [notes, search])
-
-  const activeNote = notes.find((note) => note.id === activeNoteId) || filteredNotes[0] || null
+  const filtered = useMemo(() => [...notes].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)).filter((note) => `${note.title} ${note.topic} ${snippet(note.doc)}`.toLowerCase().includes(deferredSearch.trim().toLowerCase())), [notes, deferredSearch])
+  const active = notes.find((note) => note.id === activeId) || filtered[0] || null
+  const selected = active?.doc.objects.find((object) => object.id === selectedId) || null
 
   useEffect(() => {
-    if (activeNote && editorRef.current && editorRef.current.innerHTML !== (activeNote.content || '<p></p>')) {
-      editorRef.current.innerHTML = activeNote.content || '<p></p>'
-    }
-  }, [activeNote?.id])
+    if (active && !active.doc.objects.some((object) => object.id === selectedId)) setSelectedId(active.doc.objects[0]?.id || '')
+  }, [active, selectedId])
 
-  const groupedNotes = useMemo(() => {
-    const groups = new Map<string, NoteItem[]>()
-    filteredNotes.forEach((note) => {
-      const key = noteDateLabel(note.createdAt || note.updatedAt)
-      if (!groups.has(key)) groups.set(key, [])
-      groups.get(key)!.push(note)
-    })
-    return Array.from(groups.entries())
-  }, [filteredNotes])
+  const persist = async (note: NoteRecord) =>
+    tauriInvoke('save_note', { payload: { note: { id: note.id, title: note.title, topic: note.topic, content: serialize(note.doc), updated_at: note.updatedAt, created_at: note.createdAt } } })
 
-  const persistNote = async (note: NoteItem) => {
-    await tauriInvoke('save_note', {
-      payload: {
-        note: {
-          id: note.id,
-          title: note.title,
-          topic: note.topic,
-          content: note.content,
-          updated_at: note.updatedAt,
-          created_at: note.createdAt,
-        },
-      },
-    })
-  }
-
-  const schedulePersist = (note: NoteItem) => {
-    if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current)
-    saveTimeoutRef.current = window.setTimeout(() => {
-      void persistNote(note)
-    }, 280)
-  }
-
-  const updateNote = (id: string, patch: Partial<NoteItem>) => {
+  const mutate = (producer: (note: NoteRecord) => NoteRecord) => {
+    if (!active) return
     setNotes((current) =>
       current.map((note) => {
-        if (note.id !== id) return note
-        const next = { ...note, ...patch, updatedAt: new Date().toISOString() }
-        schedulePersist(next)
+        if (note.id !== active.id) return note
+        const next = { ...producer(note), updatedAt: new Date().toISOString() }
+        if (saveRef.current) window.clearTimeout(saveRef.current)
+        saveRef.current = window.setTimeout(() => void persist(next), 240)
         return next
       }),
     )
   }
 
+  const patchObject = (objectId: string, producer: (object: NoteObject) => NoteObject) => mutate((note) => ({ ...note, doc: { ...note.doc, objects: note.doc.objects.map((object) => (object.id === objectId ? producer(object) : object)) } }))
+  const patchPrefs = (producer: (prefs: NoteDoc['prefs']) => NoteDoc['prefs']) => mutate((note) => ({ ...note, doc: { ...note.doc, prefs: producer(note.doc.prefs) } }))
+  const addObject = (object: NoteObject) => { mutate((note) => ({ ...note, doc: { ...note.doc, objects: [...note.doc.objects, object] } })); setSelectedId(object.id) }
+
   const createNote = async () => {
     const stamp = new Date().toISOString()
-    const note: NoteItem = { id: `note-${Date.now()}`, title: 'Новая заметка', topic: '', content: '<p></p>', updatedAt: stamp, createdAt: stamp }
-    await persistNote(note)
-    await loadNotes()
-    setActiveNoteId(note.id)
-    setIsEditorOpen(true)
+    const note: NoteRecord = { id: makeId('note'), title: `Hybrid note ${notes.length + 1}`, topic: 'Engineering canvas', createdAt: stamp, updatedAt: stamp, doc: createDoc(`Hybrid note ${notes.length + 1}`) }
+    setNotes((current) => [note, ...current])
+    startTransition(() => { setActiveId(note.id); setStage('preview'); setSelectedId(note.doc.objects[0]?.id || '') })
+    await persist(note).catch(() => {})
   }
 
-  const removeNote = async (id: string) => {
-    try {
-      await tauriInvoke('delete_note', { payload: { id } })
-      const nextNotes = notes.filter((note) => note.id !== id)
-      setNotes(nextNotes)
-      setActiveNoteId(nextNotes[0]?.id || '')
-      if (!nextNotes.length) setIsEditorOpen(false)
-      toast.success('Заметка удалена')
-    } catch (error) {
-      toast.error('Не удалось удалить заметку', {
-        description: error instanceof Error ? error.message : String(error),
-      })
-    }
+  const removeNote = async () => {
+    if (!active) return
+    await tauriInvoke('delete_note', { payload: { id: active.id } }).catch(() => {})
+    setNotes((current) => current.filter((note) => note.id !== active.id))
+    setStage('preview')
   }
 
-  const focusEditor = () => editorRef.current?.focus()
-
-  const syncEditorContent = () => {
-    if (!activeNote || !editorRef.current) return
-    updateNote(activeNote.id, { content: editorRef.current.innerHTML })
+  const stagePoint = (clientX: number, clientY: number) => {
+    const rect = stageRef.current?.getBoundingClientRect()
+    if (!rect || !active) return null
+    return { x: Math.max(0, Math.min(active.doc.canvas.w, clientX - rect.left)), y: Math.max(0, Math.min(active.doc.canvas.h, clientY - rect.top)) }
   }
 
-  const applyCommand = (command: string, value?: string) => {
-    focusEditor()
-    document.execCommand('styleWithCSS', false, 'true')
-    document.execCommand(command, false, value)
-    syncEditorContent()
-  }
-
-  const insertHtml = (html: string) => {
-    focusEditor()
-    document.execCommand('insertHTML', false, html)
-    syncEditorContent()
-  }
-
-  const handleImageInsert = async (file: File) => {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result || ''))
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
-    insertHtml(`<figure class="note-image-block my-5 text-center"><img src="${dataUrl}" alt="Вложение" style="width:70%;max-width:100%;margin:0 auto;border-radius:22px;display:block;" /></figure>`)
-  }
-
-  const prepareDrawingPad = () => {
-    const canvas = drawingCanvasRef.current
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    const ratio = Math.max(window.devicePixelRatio || 1, 1)
-    canvas.width = Math.floor(rect.width * ratio)
-    canvas.height = Math.floor(rect.height * ratio)
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-    ctx.fillStyle = '#09111f'
-    ctx.fillRect(0, 0, rect.width, rect.height)
-    ctx.strokeStyle = '#5b8cff'
-    ctx.lineWidth = 3
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    drawingContextRef.current = ctx
+  const beginDraw = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!active || tool !== 'draw') return
+    const point = stagePoint(event.clientX, event.clientY)
+    if (!point) return
+    drawSessionRef.current = [point]
+    setTempStroke([point])
   }
 
   useEffect(() => {
-    if (showDrawingPad) window.requestAnimationFrame(prepareDrawingPad)
-  }, [showDrawingPad])
-
-  const getCanvasPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
-  }
-
-  const startDraw = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const ctx = drawingContextRef.current
-    if (!ctx) return
-    const point = getCanvasPoint(event)
-    event.currentTarget.setPointerCapture(event.pointerId)
-    ctx.beginPath()
-    ctx.moveTo(point.x, point.y)
-    isDrawingRef.current = true
-  }
-
-  const moveDraw = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const ctx = drawingContextRef.current
-    if (!ctx || !isDrawingRef.current) return
-    const point = getCanvasPoint(event)
-    ctx.lineTo(point.x, point.y)
-    ctx.stroke()
-  }
-
-  const endDraw = () => {
-    isDrawingRef.current = false
-  }
-
-  const saveDrawingToNote = () => {
-    const canvas = drawingCanvasRef.current
-    if (!canvas) return
-    insertHtml(`<figure class="my-5"><img src="${canvas.toDataURL('image/png')}" alt="Рисунок" style="width:100%;max-width:100%;display:block;border-radius:22px;" /></figure>`)
-    setShowDrawingPad(false)
-  }
-
-  const chartPreview = useMemo(() => buildChartDataUrl(chartType, chartTitle, chartValues), [chartTitle, chartType, chartValues])
-  const tablePreview = useMemo(() => buildTableHtml(tableSource), [tableSource])
-
-  const insertChartBlock = () => {
-    if (!chartPreview) return toast.error('Заполни данные для диаграммы')
-    insertHtml(`<figure class="my-5"><img src="${chartPreview}" alt="${chartTitle}" style="width:100%;display:block;border-radius:24px;" /></figure>`)
-    setBuilderMode(null)
-  }
-
-  const insertTableBlock = () => {
-    if (!tablePreview) return toast.error('Заполни таблицу')
-    insertHtml(tablePreview)
-    setBuilderMode(null)
-  }
-
-  const handleEditorClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const target = event.target
-    if (target instanceof HTMLImageElement) {
-      selectedImageRef.current = target
-      const widthValue = Number.parseInt(target.style.width || '70', 10)
-      setSelectedImageWidth(Number.isFinite(widthValue) ? widthValue : 70)
-      return
+    const handleMove = (event: PointerEvent) => {
+      if (!drawSessionRef.current.length) return
+      const point = stagePoint(event.clientX, event.clientY)
+      if (!point) return
+      const next = [...drawSessionRef.current, point]
+      drawSessionRef.current = next
+      setTempStroke(next)
     }
-    selectedImageRef.current = null
-  }
-
-  const resizeSelectedImage = (width: number) => {
-    setSelectedImageWidth(width)
-    if (selectedImageRef.current) {
-      selectedImageRef.current.style.width = `${width}%`
-      selectedImageRef.current.style.maxWidth = '100%'
-      syncEditorContent()
+    const handleUp = () => {
+      if (!active || drawSessionRef.current.length < 2) { drawSessionRef.current = []; setTempStroke([]); return }
+      const xs = drawSessionRef.current.map((point) => point.x)
+      const ys = drawSessionRef.current.map((point) => point.y)
+      const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(MIN, Math.max(...xs) - x), h = Math.max(MIN, Math.max(...ys) - y)
+      addObject({ id: makeId('stroke'), type: 'stroke', name: 'Trace', x, y, w, h, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, stroke: drawColor, points: drawSessionRef.current.map((point) => ({ x: (point.x - x) / w, y: (point.y - y) / h })) })
+      drawSessionRef.current = []
+      setTempStroke([])
     }
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp)
+    return () => { window.removeEventListener('pointermove', handleMove); window.removeEventListener('pointerup', handleUp) }
+  }, [active, drawColor, tool])
+
+  const updateCoords = (object: NoteObject, producer: (draftObject: NoteObject) => void) => {
+    const next = { ...object }
+    producer(next)
+    if (active?.doc.prefs.grid !== 'off') { next.x = snap(next.x, active.doc.prefs.grid === 'isometric'); next.y = snap(next.y, active.doc.prefs.grid === 'isometric') }
+    patchObject(object.id, () => next)
   }
 
-  const exportAsPng = async () => {
-    if (!editorFrameRef.current || !activeNote) return
-    try {
-      const dataUrl = await toPng(editorFrameRef.current, { cacheBust: true, pixelRatio: 2, backgroundColor: '#0a1120' })
-      const link = document.createElement('a')
-      link.href = dataUrl
-      link.download = `${activeNote.title || 'note'}.png`
-      link.click()
-    } catch (error) {
-      toast.error('Не удалось скачать PNG', { description: error instanceof Error ? error.message : String(error) })
-    }
-  }
+  const addText = (variant: NoteObject['variant']) =>
+    active &&
+    addObject({ id: makeId('text'), type: 'text', name: variant === 'title' ? 'Title' : variant === 'callout' ? 'Callout' : 'Text', x: 120, y: 140 + active.doc.objects.length * 18, w: variant === 'body' ? 360 : 300, h: 120, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, variant, text: variant === 'title' ? 'New section\nAlign with drafting layer.' : variant === 'callout' ? 'Lock text before tracing.' : 'Editable paragraph object.' })
 
-  const exportAsPdf = async () => {
-    if (!editorFrameRef.current || !activeNote) return
-    try {
-      const dataUrl = await toPng(editorFrameRef.current, { cacheBust: true, pixelRatio: 2, backgroundColor: '#0a1120' })
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' })
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      pdf.addImage(dataUrl, 'PNG', 24, 24, pageWidth - 48, pageHeight - 48)
-      pdf.save(`${activeNote.title || 'note'}.pdf`)
-    } catch (error) {
-      toast.error('Не удалось скачать PDF', { description: error instanceof Error ? error.message : String(error) })
-    }
-  }
-
+  const addImage = () => active && addObject({ id: makeId('img'), type: 'image', name: 'Imported image', x: 560, y: 132, w: 420, h: 250, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, src: imageUrl.trim() || svgImage('book'), caption: 'Textbook reference', traceable: true })
+  const addTable = () => active && addObject({ id: makeId('table'), type: 'table', name: 'Object table', x: 110, y: 520, w: 400, h: 200, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, cells: tableDraft.split('\n').map((row) => row.split(',').map((cell) => cell.trim())).filter((row) => row.some(Boolean)) })
+  const addDiagram = () => active && addObject({ id: makeId('cad'), type: 'cad', name: 'Diagram node', x: 630, y: 620, w: 188, h: 108, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, shape: 'polygon', units: 'px', stroke: '#ffd87e', fill: 'rgba(255,216,126,.12)', view: 'Diagram' })
+  const addCad = () => active && addObject({ id: makeId('cad'), type: 'cad', name: draft.view, x: draft.x, y: draft.y, w: draft.w, h: draft.h, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, shape: draft.shape, units: draft.units, dash: draft.dash, stroke: '#86adff', fill: draft.shape === 'arc' ? 'transparent' : 'rgba(98,147,255,.12)', view: draft.view })
+  const toolbarItems = [{ key: 'insert', label: 'Insert', icon: Plus }, { key: 'draw', label: 'Draw', icon: PenTool }, { key: 'table', label: 'Table', icon: Table2 }, { key: 'diagram', label: 'Diagram', icon: Workflow }, { key: 'drafting', label: 'Drafting', icon: Ruler }] as const
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
-      <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
-        {!isEditorOpen ? (
-          <section className="flex w-full flex-col">
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Блокнот</div>
-                <h1 className="mt-2 text-3xl font-semibold text-white">Все записи</h1>
-                <p className="mt-2 max-w-2xl text-sm text-white/55">Список заметок по датам создания. Нажми на запись и она откроется в полноэкранном режиме.</p>
+      <main className="flex-1 p-4 sm:p-6 xl:p-8">
+        <div className="min-h-[calc(100vh-3rem)] rounded-[34px] border p-4 sm:p-5 xl:p-6" style={{ background: palette.shell, borderColor: palette.border, color: palette.text }}>
+          <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-[18px] border" style={{ background: palette.accentSoft, borderColor: palette.border }}><NotebookPen className="h-5 w-5" style={{ color: palette.accent }} /></div>
+                <div><div className="text-[11px] uppercase tracking-[0.28em]" style={{ color: palette.muted }}>veyo.ai notebook lab</div><h1 className="text-2xl font-semibold sm:text-3xl">Hybrid Note-Taking System</h1></div>
               </div>
-              <Button onClick={() => void createNote()} className="rounded-2xl"><Plus className="h-4 w-4" />Создать заметку</Button>
+              <p className="mt-3 max-w-3xl text-sm leading-6" style={{ color: palette.muted }}>Two-stage opening, object canvas, trace layer, dimensions, snapping and Rust-ready PDF export.</p>
             </div>
-            <div className="mb-6">
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск по заметкам..." className="h-12 max-w-md rounded-2xl border-white/10 bg-white/[0.03] text-white placeholder:text-white/28" />
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex min-w-[260px] items-center gap-3 rounded-[20px] border px-4 py-3" style={{ background: palette.soft, borderColor: palette.border }}><Search className="h-4 w-4" style={{ color: palette.muted }} /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск по заметкам и объектам" className="border-none bg-transparent px-0 text-sm shadow-none focus-visible:ring-0" style={{ color: palette.text }} /></div>
+              <Button onClick={() => void createNote()} className="h-12 rounded-[20px] px-5" style={{ background: palette.accent, color: dark ? '#08111f' : '#fff' }}><Plus className="h-4 w-4" />New hybrid note</Button>
             </div>
-            <div className="space-y-8">
-              {isLoading ? <div className="rounded-[28px] border border-white/8 bg-white/[0.03] px-6 py-10 text-white/55">Загрузка заметок...</div> : groupedNotes.length ? groupedNotes.map(([label, sectionNotes]) => (
-                <section key={label}>
-                  <div className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">{label}</div>
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {sectionNotes.map((note) => (
-                      <button key={note.id} type="button" onClick={() => { setActiveNoteId(note.id); setIsEditorOpen(true) }} className="rounded-[28px] border border-white/8 bg-white/[0.03] p-5 text-left transition hover:-translate-y-0.5 hover:border-primary/22 hover:bg-white/[0.05]">
-                        <div className="mb-3 flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-lg font-semibold text-white">{note.title}</div>
-                            <div className="mt-1 text-sm text-white/45">{format(new Date(note.createdAt), 'd MMMM yyyy, HH:mm', { locale: ru })}</div>
-                          </div>
-                          <SquarePen className="mt-1 h-4 w-4 shrink-0 text-white/35" />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <aside className="flex min-h-[760px] flex-col rounded-[30px] border p-4" style={{ background: palette.panel, borderColor: palette.border }}>
+              <div className="mb-4 flex items-center justify-between"><div><div className="text-xs uppercase tracking-[0.24em]" style={{ color: palette.muted }}>Sidebar list</div><div className="mt-1 text-lg font-semibold">Notes</div></div><div className="rounded-full px-3 py-1 text-xs font-semibold" style={{ background: palette.accentSoft, color: palette.accent }}>{filtered.length}</div></div>
+              <div className="scrollbar-none flex-1 space-y-3 overflow-y-auto pr-1">
+                {loading ? <div className="rounded-[24px] border px-4 py-8 text-sm" style={{ background: palette.soft, borderColor: palette.border, color: palette.muted }}>Загрузка...</div> : filtered.map((note) => (
+                  <button key={note.id} type="button" onClick={() => startTransition(() => { setActiveId(note.id); setStage('preview'); setSelectedId(note.doc.objects[0]?.id || '') })} className={cn('w-full rounded-[28px] border p-4 text-left transition', note.id === active?.id ? 'translate-x-1' : 'hover:-translate-y-0.5')} style={{ minHeight: 154, background: note.id === active?.id ? palette.strong : palette.soft, borderColor: note.id === active?.id ? palette.accent : palette.border }}>
+                    <div className="flex items-start justify-between gap-3"><div><div className="text-lg font-semibold">{note.title}</div><div className="mt-1 text-xs uppercase tracking-[0.16em]" style={{ color: palette.muted }}>{format(new Date(note.updatedAt), 'd MMM yyyy, HH:mm', { locale: ru })}</div></div><div className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ background: palette.accentSoft, color: palette.accent }}>{note.topic}</div></div>
+                    <div className="mt-4 line-clamp-4 text-sm leading-6" style={{ color: palette.muted }}>{snippet(note.doc)}</div>
+                  </button>
+                ))}
+              </div>
+            </aside>
+            {!active ? <div className="flex min-h-[760px] items-center justify-center rounded-[30px] border p-8 text-center text-sm" style={{ background: palette.panel, borderColor: palette.border, color: palette.muted }}>Выбери заметку слева.</div> : stage === 'preview' ? (
+              <div className="grid min-h-[760px] gap-4 rounded-[30px] border p-4 xl:grid-cols-[minmax(0,1fr)_320px]" style={{ background: palette.panel, borderColor: palette.border }}>
+                <button type="button" onClick={() => setStage('editor')} className="flex min-h-[720px] flex-col rounded-[30px] border p-5 text-left transition hover:-translate-y-1" style={{ background: palette.strong, borderColor: palette.accent }}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div><div className="text-xs uppercase tracking-[0.28em]" style={{ color: palette.muted }}>Preview pane</div><div className="mt-2 text-3xl font-semibold">{active.title}</div><div className="mt-3 max-w-2xl text-sm leading-6" style={{ color: palette.muted }}>Click preview to enter the full editor. The preview already reflects live objects, dimensions and lock state.</div></div>
+                    <div className="rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em]" style={{ background: palette.accentSoft, color: palette.accent }}>Enter Editor</div>
+                  </div>
+                  <div className="mt-6 grid gap-3 sm:grid-cols-4">{Object.entries({ text: active.doc.objects.filter((object) => object.type === 'text').length, cad: active.doc.objects.filter((object) => object.type === 'cad').length, trace: active.doc.objects.filter((object) => object.type === 'stroke').length, tables: active.doc.objects.filter((object) => object.type === 'table').length }).map(([key, value]) => <div key={key} className="rounded-[22px] border px-4 py-4" style={{ background: palette.soft, borderColor: palette.border }}><div className="text-xs uppercase tracking-[0.2em]" style={{ color: palette.muted }}>{key}</div><div className="mt-2 text-2xl font-semibold">{value}</div></div>)}</div>
+                  <div className="relative mt-6 flex-1 overflow-hidden rounded-[28px] border" style={{ background: palette.page, borderColor: palette.border }}>{sortObjects(active.doc.objects).filter((object) => object.visible).map((object) => <div key={object.id} className="absolute rounded-[18px] border" style={{ left: object.x * 0.58, top: object.y * 0.58, width: object.w * 0.58, height: object.h * 0.58, borderColor: palette.border, background: object.type === 'cad' ? palette.accentSoft : object.type === 'image' ? palette.ghost : palette.soft }} />)}</div>
+                </button>
+                <div className="space-y-4">
+                  {[hierarchy, syncNotes].map((list, index) => <div key={index} className="rounded-[24px] border p-4" style={{ background: palette.soft, borderColor: palette.border }}><div className="mb-3 text-xs uppercase tracking-[0.22em]" style={{ color: palette.muted }}>{index ? 'Drafting/Text Sync' : 'Component Hierarchy'}</div><div className="space-y-2">{list.map((item) => <div key={item} className="text-sm leading-6" style={{ color: palette.muted }}>{item}</div>)}</div></div>)}
+                  <div className="rounded-[24px] border p-4" style={{ background: palette.soft, borderColor: palette.border }}><div className="mb-3 text-xs uppercase tracking-[0.22em]" style={{ color: palette.muted }}>Rust Pipeline</div><div className="text-sm leading-6" style={{ color: palette.muted }}><div>`solve_hybrid_geometry(document)`</div><div>`recompute_dimensions(document)`</div><div>`export_hybrid_note_pdf(document, theme)`</div></div></div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid min-h-[760px] gap-4 rounded-[30px] border p-4 xl:grid-cols-[250px_minmax(0,1fr)_320px]" style={{ background: palette.panel, borderColor: palette.border }}>
+                <div className="flex min-h-[720px] flex-col rounded-[28px] border p-3" style={{ background: palette.soft, borderColor: palette.border }}>
+                  {tool === 'insert' ? <div className="space-y-3"><Button className="justify-start rounded-[16px]" onClick={() => addText('title')}><Plus className="h-4 w-4" />Title block</Button><Button className="justify-start rounded-[16px]" onClick={() => addText('body')}><Plus className="h-4 w-4" />Body text</Button><Button className="justify-start rounded-[16px]" onClick={() => addText('callout')}><Sparkles className="h-4 w-4" />Callout</Button><Input value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="Optional image URL" /><Button className="justify-start rounded-[16px]" onClick={addImage}><ImagePlus className="h-4 w-4" />Insert image / textbook</Button></div> : tool === 'draw' ? <div className="space-y-3"><Input type="color" value={drawColor} onChange={(event) => setDrawColor(event.target.value)} className="h-12" /><div className="rounded-[18px] border px-3 py-3 text-sm" style={{ background: palette.strong, borderColor: palette.border, color: palette.muted }}>Transparent trace layer over the whole canvas.</div></div> : tool === 'table' ? <div className="space-y-3"><textarea value={tableDraft} onChange={(event) => setTableDraft(event.target.value)} className="min-h-[180px] w-full rounded-[18px] border p-3 text-sm outline-none" style={{ background: palette.strong, borderColor: palette.border, color: palette.text }} /><Button className="justify-start rounded-[16px]" onClick={addTable}><Table2 className="h-4 w-4" />Insert table</Button></div> : tool === 'diagram' ? <div className="space-y-3"><Button className="justify-start rounded-[16px]" onClick={addDiagram}><Workflow className="h-4 w-4" />Insert diagram block</Button></div> : <div className="space-y-3"><div className="grid grid-cols-2 gap-2">{(['rectangle', 'circle', 'arc', 'polygon'] as const).map((shape) => <button key={shape} type="button" onClick={() => setDraft((current) => ({ ...current, shape }))} className="rounded-[16px] border px-3 py-2 text-sm capitalize" style={{ background: draft.shape === shape ? palette.accentSoft : palette.strong, borderColor: draft.shape === shape ? palette.accent : palette.border, color: draft.shape === shape ? palette.accent : palette.text }}>{shape}</button>)}</div><div className="grid grid-cols-2 gap-2">{(['x', 'y', 'w', 'h'] as const).map((key) => <Input key={key} type="number" value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value || 0) }))} />)}</div><Input value={draft.view} onChange={(event) => setDraft((current) => ({ ...current, view: event.target.value }))} /><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setDraft((current) => ({ ...current, units: current.units === 'mm' ? 'px' : 'mm' }))} className="rounded-[16px] border px-3 py-2 text-sm" style={{ background: palette.strong, borderColor: palette.border, color: palette.text }}>Units: {draft.units}</button><button type="button" onClick={() => setDraft((current) => ({ ...current, dash: !current.dash }))} className="rounded-[16px] border px-3 py-2 text-sm" style={{ background: palette.strong, borderColor: palette.border, color: palette.text }}>Line: {draft.dash ? 'dashed' : 'solid'}</button></div><Button className="justify-start rounded-[16px]" onClick={addCad}><Ruler className="h-4 w-4" />Create drafting object</Button></div>}
+                </div>
+                <div className="flex min-h-[720px] flex-col gap-4">
+                  <div className="rounded-[28px] border p-3" style={{ background: palette.soft, borderColor: palette.border }}>
+                    <div className="flex flex-wrap gap-2">{toolbarItems.map((item) => { const Icon = item.icon; return <button key={item.key} type="button" onClick={() => setTool(item.key)} className="inline-flex items-center gap-2 rounded-[18px] border px-4 py-2 text-sm font-semibold" style={{ background: tool === item.key ? palette.accentSoft : palette.strong, color: tool === item.key ? palette.accent : palette.text, borderColor: tool === item.key ? palette.accent : palette.border }}><Icon className="h-4 w-4" />{item.label}</button> })}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">{[{ label: active.doc.prefs.dimMode ? 'Dimension Mode' : 'Sketch Mode', icon: Ruler, onClick: () => patchPrefs((prefs) => ({ ...prefs, dimMode: !prefs.dimMode })) }, { label: active.doc.prefs.dims ? 'Hide Dimensions' : 'Show Dimensions', icon: active.doc.prefs.dims ? Eye : EyeOff, onClick: () => patchPrefs((prefs) => ({ ...prefs, dims: !prefs.dims })) }, { label: active.doc.prefs.grid, icon: Grid3x3, onClick: () => patchPrefs((prefs) => ({ ...prefs, grid: prefs.grid === 'off' ? 'orthographic' : prefs.grid === 'orthographic' ? 'isometric' : 'off' })) }, { label: active.doc.prefs.ghost ? 'Ghost On' : 'Ghost Off', icon: Ghost, onClick: () => patchPrefs((prefs) => ({ ...prefs, ghost: !prefs.ghost })) }].map((item) => { const Icon = item.icon; return <button key={item.label} type="button" onClick={item.onClick} className="inline-flex items-center gap-2 rounded-[16px] border px-3 py-2 text-sm font-semibold" style={{ background: palette.strong, color: palette.text, borderColor: palette.border }}><Icon className="h-4 w-4" />{item.label}</button> })}<button type="button" onClick={() => exportNotePdf(active, dark)} className="inline-flex items-center gap-2 rounded-[16px] border px-3 py-2 text-sm font-semibold" style={{ background: palette.strong, color: palette.text, borderColor: palette.border }}><FileOutput className="h-4 w-4" />Export PDF</button></div>
+                  </div>
+                  <div className="relative flex-1 overflow-hidden rounded-[30px] border" style={{ background: palette.page, borderColor: palette.border }}>
+                    <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: palette.border, background: palette.strong }}><div><Input value={active.title} onChange={(event) => mutate((note) => ({ ...note, title: event.target.value }))} className="h-auto border-none bg-transparent px-0 text-2xl font-semibold shadow-none focus-visible:ring-0" style={{ color: palette.text }} /><Input value={active.topic} onChange={(event) => mutate((note) => ({ ...note, topic: event.target.value }))} className="mt-1 h-auto border-none bg-transparent px-0 text-sm shadow-none focus-visible:ring-0" style={{ color: palette.muted }} /></div><div className="flex gap-2"><Button variant="outline" onClick={() => setStage('preview')} className="rounded-[16px] border px-3" style={{ borderColor: palette.border, background: palette.strong, color: palette.text }}>Preview</Button><Button variant="outline" onClick={() => selected && addObject({ ...selected, id: makeId(selected.type), x: selected.x + 24, y: selected.y + 24, z: active.doc.objects.length + 2 })} className="rounded-[16px] border px-3" style={{ borderColor: palette.border, background: palette.strong, color: palette.text }}>Duplicate</Button><Button variant="outline" onClick={() => selected && mutate((note) => ({ ...note, doc: { ...note.doc, objects: note.doc.objects.filter((object) => object.id !== selected.id) } }))} className="rounded-[16px] border px-3" style={{ borderColor: 'rgba(255,91,91,.32)', background: 'rgba(255,91,91,.08)', color: '#ffb7b7' }}>Delete object</Button><Button variant="outline" onClick={() => void removeNote()} className="rounded-[16px] border px-3" style={{ borderColor: 'rgba(255,91,91,.32)', background: 'rgba(255,91,91,.08)', color: '#ffb7b7' }}>Delete note</Button></div></div>
+                    <div className="grid h-[calc(100%-73px)] grid-rows-[minmax(0,1fr)_188px]">
+                      <div className="overflow-auto p-5">
+                        <div ref={stageRef} className="relative mx-auto overflow-hidden rounded-[28px] border" style={{ width: active.doc.canvas.w, height: active.doc.canvas.h, borderColor: palette.border, backgroundColor: palette.page }} onPointerDown={beginDraw}>
+                          {sortObjects(active.doc.objects).filter((object) => object.visible).map((object) => object.type === 'text' ? <div key={object.id} className={cn('absolute rounded-[26px] border p-4', selectedId === object.id && 'shadow-[0_0_0_1px_rgba(121,167,255,.35)]')} style={{ left: object.x, top: object.y, width: object.w, height: object.h, transform: `rotate(${object.rot}deg)`, zIndex: object.z, opacity: object.opacity, background: object.variant === 'callout' ? palette.accentSoft : 'rgba(255,255,255,.02)', borderColor: selectedId === object.id ? palette.accent : palette.border }}><button type="button" className="absolute inset-0" onClick={() => setSelectedId(object.id)} /><textarea value={object.text} onChange={(event) => patchObject(object.id, (current) => ({ ...current, text: event.target.value }))} className={cn('relative h-full w-full resize-none border-none bg-transparent outline-none', object.variant === 'title' ? 'text-[28px] font-semibold leading-[1.14]' : object.variant === 'callout' ? 'text-sm font-medium leading-6' : 'text-[15px] leading-7')} style={{ color: palette.text }} /></div> : object.type === 'image' ? <div key={object.id} role="button" tabIndex={0} onClick={() => setSelectedId(object.id)} onKeyDown={() => setSelectedId(object.id)} className={cn('absolute overflow-hidden rounded-[26px] border', selectedId === object.id && 'shadow-[0_0_0_1px_rgba(121,167,255,.35)]')} style={{ left: object.x, top: object.y, width: object.w, height: object.h, transform: `rotate(${object.rot}deg)`, zIndex: object.z, opacity: active.doc.prefs.ghost && object.traceable ? 0.34 : object.opacity, borderColor: selectedId === object.id ? palette.accent : palette.border, background: palette.strong }}><img src={object.src} alt={object.caption} className="h-full w-full object-cover" /><div className="absolute left-3 top-3 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ background: palette.ghost, color: palette.text }}>{active.doc.prefs.ghost && object.traceable ? 'Ghost Mode' : object.caption}</div></div> : object.type === 'cad' ? <div key={object.id} className={cn('absolute rounded-[26px]', selectedId === object.id && 'shadow-[0_0_0_1px_rgba(121,167,255,.4)]')} style={{ left: object.x, top: object.y, width: object.w, height: object.h, transform: `rotate(${object.rot}deg)`, zIndex: object.z, opacity: object.opacity }}><button type="button" className="absolute inset-0 rounded-[26px] border" style={{ borderColor: selectedId === object.id ? palette.accent : palette.border }} onClick={() => setSelectedId(object.id)} /><svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">{renderCadShape(object)}</svg>{selectedId === object.id && (active.doc.prefs.dims || active.doc.prefs.dimMode) ? <><div className="absolute left-4 right-4 top-[-30px] flex items-center gap-2"><div className="h-px flex-1" style={{ background: palette.dim }} /><input value={Math.round(object.w)} onChange={(event) => patchObject(object.id, (current) => ({ ...current, w: Math.max(MIN, Number(event.target.value || 0)) }))} className="w-20 rounded-full border px-3 py-1 text-center text-[11px] font-semibold outline-none" style={{ background: palette.strong, color: palette.dim, borderColor: palette.dim }} /><div className="h-px flex-1" style={{ background: palette.dim }} /></div><div className="absolute bottom-4 left-[-34px] top-4 flex flex-col items-center justify-center gap-2"><div className="h-full w-px" style={{ background: palette.dim }} /><input value={Math.round(object.h)} onChange={(event) => patchObject(object.id, (current) => ({ ...current, h: Math.max(MIN, Number(event.target.value || 0)) }))} className="w-16 rounded-full border px-2 py-1 text-center text-[11px] font-semibold outline-none" style={{ background: palette.strong, color: palette.dim, borderColor: palette.dim }} /></div></> : null}{selectedId === object.id && !object.locked ? <><button type="button" className="absolute -right-2 -bottom-2 h-5 w-5 rounded-full border border-white/40 bg-white/90 text-[10px] font-semibold text-slate-900" onClick={() => updateCoords(object, (next) => { next.w = Math.max(MIN, next.w + 20); next.h = Math.max(MIN, next.h + 20) })}>SE</button><button type="button" className="absolute -left-2 -top-2 h-5 w-5 rounded-full border border-white/40 bg-white/90 text-[10px] font-semibold text-slate-900" onClick={() => updateCoords(object, (next) => { next.x -= 20; next.y -= 20; next.w = Math.max(MIN, next.w + 20); next.h = Math.max(MIN, next.h + 20) })}>NW</button><button type="button" className="absolute left-1/2 -top-8 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-full border" style={{ background: palette.strong, color: palette.text, borderColor: palette.border }} onClick={() => patchObject(object.id, (current) => ({ ...current, rot: current.rot + 15 }))}><RotateCw className="h-3.5 w-3.5" /></button></> : null}</div> : object.type === 'table' ? <div key={object.id} className="absolute overflow-hidden rounded-[26px] border" style={{ left: object.x, top: object.y, width: object.w, height: object.h, transform: `rotate(${object.rot}deg)`, zIndex: object.z, borderColor: selectedId === object.id ? palette.accent : palette.border, background: palette.strong }}><button type="button" className="absolute inset-0" onClick={() => setSelectedId(object.id)} /><div className="grid h-full w-full" style={{ gridTemplateColumns: `repeat(${Math.max(...(object.cells || []).map((row) => row.length), 1)}, minmax(0,1fr))` }}>{(object.cells || []).flatMap((row, rowIndex) => row.map((cell, cellIndex) => <div key={`${rowIndex}-${cellIndex}`} className="border px-3 py-3 text-sm" style={{ borderColor: palette.border, background: rowIndex === 0 ? palette.accentSoft : 'transparent', color: palette.text }}>{cell}</div>))}</div></div> : <div key={object.id} className="absolute rounded-[26px] border" style={{ left: object.x, top: object.y, width: object.w, height: object.h, transform: `rotate(${object.rot}deg)`, zIndex: object.z, borderColor: selectedId === object.id ? palette.accent : 'transparent' }}><button type="button" className="absolute inset-0" onClick={() => setSelectedId(object.id)} /><svg viewBox={`0 0 ${object.w} ${object.h}`} className="h-full w-full">{object.points?.map((point, index) => index ? <line key={index} x1={object.points![index - 1].x * object.w} y1={object.points![index - 1].y * object.h} x2={point.x * object.w} y2={point.y * object.h} stroke={object.stroke} strokeWidth={4} strokeLinecap="round" /> : null)}</svg></div>)}
+                          {tempStroke.length > 1 ? <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"><polyline points={tempStroke.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={drawColor} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" /></svg> : null}
                         </div>
-                        <div className="line-clamp-4 text-sm leading-6 text-white/62">{stripHtml(note.content) || 'Пустая заметка'}</div>
-                        <div className="mt-4 inline-flex rounded-full bg-primary/12 px-3 py-1 text-xs font-medium text-primary">{note.topic || 'Без темы'}</div>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )) : <div className="rounded-[28px] border border-white/8 bg-white/[0.03] px-6 py-12 text-center text-white/55">Пока нет заметок. Создай первую запись и открой её на весь экран.</div>}
-            </div>
-          </section>
-        ) : activeNote ? (
-          <section className="flex w-full flex-1 flex-col">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="text-sm text-white/45">{format(new Date(activeNote.createdAt), 'd MMMM yyyy', { locale: ru })}</div>
-              <button type="button" onClick={() => setIsEditorOpen(false)} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/80 transition hover:bg-white/[0.08] hover:text-white">Назад<ArrowLeft className="h-4 w-4" /></button>
-            </div>
-            <div className="overflow-hidden rounded-[34px] border border-white/8 bg-[radial-gradient(circle_at_top,_rgba(91,140,255,0.14),_transparent_30%),linear-gradient(180deg,_rgba(9,14,28,0.98),_rgba(6,9,20,1))] shadow-[0_30px_90px_-45px_rgba(31,59,180,0.45)]">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4">
-                <div className="min-w-0">
-                  <Input value={activeNote.title} onChange={(event) => updateNote(activeNote.id, { title: event.target.value })} className="h-auto border-none bg-transparent px-0 text-3xl font-semibold text-white shadow-none focus-visible:ring-0" />
-                  <div className="mt-1 text-sm text-white/40">Полноэкранная заметка</div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={exportAsPng} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Download className="h-4 w-4" />PNG</Button>
-                  <Button variant="outline" size="sm" onClick={exportAsPdf} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Download className="h-4 w-4" />PDF</Button>
-                  <Button variant="outline" size="sm" onClick={() => void removeNote(activeNote.id)} className="rounded-2xl border-red-400/20 bg-transparent text-red-200 hover:bg-red-500/10 hover:text-red-100"><Trash2 className="h-4 w-4" /></Button>
-                </div>
-              </div>
-              <div className="border-b border-white/8 px-5 py-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Input value={activeNote.topic} onChange={(event) => updateNote(activeNote.id, { topic: event.target.value })} placeholder="Тема" className="h-11 w-52 rounded-2xl border-white/10 bg-white/[0.03] text-white placeholder:text-white/28" />
-                  <select value={fontFamily} onChange={(event) => { setFontFamily(event.target.value); applyCommand('fontName', event.target.value) }} className="h-11 rounded-2xl border border-white/10 bg-white/[0.03] px-3 text-sm text-white">{FONT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-                  <select value={fontSize} onChange={(event) => { const next = Number(event.target.value); setFontSize(next); applyCommand('fontSize', next >= 28 ? '6' : next >= 24 ? '5' : next >= 20 ? '4' : next >= 16 ? '3' : '2') }} className="h-11 rounded-2xl border border-white/10 bg-white/[0.03] px-3 text-sm text-white">{FONT_SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}px</option>)}</select>
-                  <div className="ml-auto flex flex-wrap items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => applyCommand('bold')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Bold className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={() => applyCommand('italic')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Italic className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={() => applyCommand('underline')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Underline className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={() => applyCommand('insertUnorderedList')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><List className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={() => applyCommand('insertOrderedList')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><ListOrdered className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={() => imageInputRef.current?.click()} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><ImagePlus className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={() => setShowDrawingPad((current) => !current)} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Paintbrush className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={() => setBuilderMode('chart')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><ChartColumn className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={() => setBuilderMode('table')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Table2 className="h-4 w-4" /></Button>
+                      </div>
+                      <div className="border-t p-3" style={{ borderColor: palette.border, background: palette.strong }}><div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Layers3 className="h-4 w-4" style={{ color: palette.accent }} />Layers panel</div><div className="grid gap-2 xl:grid-cols-2">{sortObjects(active.doc.objects).slice().reverse().map((object) => <div key={object.id} className={cn('flex items-center justify-between gap-3 rounded-[18px] border px-4 py-3', selectedId === object.id && 'shadow-[0_0_0_1px_rgba(121,167,255,.3)]')} style={{ background: palette.soft, borderColor: selectedId === object.id ? palette.accent : palette.border }}><button type="button" className="min-w-0 text-left" onClick={() => setSelectedId(object.id)}><div className="truncate text-sm font-semibold">{object.name}</div><div className="mt-1 text-[11px] uppercase tracking-[0.18em]" style={{ color: palette.muted }}>{object.type} / z{object.z}</div></button><div className="flex items-center gap-2"><button type="button" onClick={() => patchObject(object.id, (current) => ({ ...current, visible: !current.visible }))} className="rounded-full border p-2" style={{ borderColor: palette.border, color: palette.text }}>{object.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}</button><button type="button" onClick={() => patchObject(object.id, (current) => ({ ...current, locked: !current.locked }))} className="rounded-full border p-2" style={{ borderColor: palette.border, color: object.locked ? palette.dim : palette.text }}>{object.locked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}</button></div></div>)}</div></div>
+                    </div>
                   </div>
                 </div>
-                <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void handleImageInsert(file); if (imageInputRef.current) imageInputRef.current.value = '' }} />
-                {selectedImageRef.current ? <div className="mt-4 flex items-center gap-4 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3"><div className="text-sm text-white/65">Размер изображения</div><input type="range" min={25} max={100} value={selectedImageWidth} onChange={(event) => resizeSelectedImage(Number(event.target.value))} className="h-2 w-56 accent-blue-500" /><div className="text-sm text-white/85">{selectedImageWidth}%</div></div> : null}
-                {showDrawingPad ? <div className="mt-4 rounded-[28px] border border-white/8 bg-white/[0.03] p-4"><div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-base font-semibold text-white">Рисование прямо в заметке</div><div className="text-sm text-white/45">Нарисуй фрагмент и вставь его в заметку.</div></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={prepareDrawingPad} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Eraser className="h-4 w-4" />Очистить</Button><Button size="sm" onClick={saveDrawingToNote} className="rounded-2xl">Вставить</Button></div></div><canvas ref={drawingCanvasRef} className="h-[300px] w-full touch-none rounded-[22px] border border-white/10 bg-[#09111f]" onPointerDown={startDraw} onPointerMove={moveDraw} onPointerUp={endDraw} onPointerLeave={endDraw} onPointerCancel={endDraw} /></div> : null}
-              </div>
-              <div className="grid min-h-[72vh] gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
-                <div className="min-w-0 border-r border-white/8 p-5">
-                  <div ref={editorFrameRef} className="rounded-[28px] border border-white/8 bg-white/[0.025] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-                    <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={syncEditorContent} onClick={handleEditorClick} className="min-h-[62vh] text-[17px] leading-8 text-white outline-none [&_img]:mx-auto [&_img]:my-4 [&_img]:rounded-[22px] [&_p]:mb-4 [&_table]:w-full" style={{ fontFamily, fontSize }} />
-                  </div>
+                <div className="flex min-h-[720px] flex-col gap-4">
+                  <div className="rounded-[24px] border p-4" style={{ background: palette.soft, borderColor: palette.border }}><div className="mb-3 text-xs uppercase tracking-[0.22em]" style={{ color: palette.muted }}>Selection Inspector</div>{selected ? <div className="space-y-3"><Input value={selected.name} onChange={(event) => patchObject(selected.id, (current) => ({ ...current, name: event.target.value }))} /><div className="grid grid-cols-2 gap-2">{(['x', 'y', 'w', 'h'] as const).map((key) => <Input key={key} type="number" value={selected[key]} onChange={(event) => patchObject(selected.id, (current) => ({ ...current, [key]: Number(event.target.value || 0) }))} />)}</div>{selected.type === 'text' ? <textarea value={selected.text} onChange={(event) => patchObject(selected.id, (current) => ({ ...current, text: event.target.value }))} className="min-h-[120px] w-full rounded-[18px] border p-3 text-sm outline-none" style={{ background: palette.strong, borderColor: palette.border, color: palette.text }} /> : null}{selected.type === 'table' ? <textarea value={(selected.cells || []).map((row) => row.join(',')).join('\n')} onChange={(event) => patchObject(selected.id, (current) => ({ ...current, cells: event.target.value.split('\n').map((row) => row.split(',').map((cell) => cell.trim())).filter((row) => row.some(Boolean)) }))} className="min-h-[120px] w-full rounded-[18px] border p-3 text-sm outline-none" style={{ background: palette.strong, borderColor: palette.border, color: palette.text }} /> : null}</div> : <div className="text-sm leading-6" style={{ color: palette.muted }}>Select any object to edit geometry, content and lock state.</div>}</div>
+                  <div className="rounded-[24px] border p-4" style={{ background: palette.soft, borderColor: palette.border }}><div className="mb-3 text-xs uppercase tracking-[0.22em]" style={{ color: palette.muted }}>Next.js + Rust</div><div className="space-y-2 text-sm leading-6" style={{ color: palette.muted }}><div>Next.js owns preview, interaction and optimistic state.</div><div>Rust owns geometry solving, dimension recompute and final PDF rendering.</div><div>The shared contract is one serialized hybrid note document.</div></div></div>
+                  <div className="rounded-[24px] border p-4" style={{ background: palette.soft, borderColor: palette.border }}><div className="mb-3 text-xs uppercase tracking-[0.22em]" style={{ color: palette.muted }}>Selectable CAD Object</div><pre className="overflow-auto rounded-[18px] border p-4 text-[11px] leading-5" style={{ background: '#09101d', borderColor: palette.border, color: '#d9e4ff' }}>{codeSnippet}</pre></div>
                 </div>
-                <aside className="border-t border-white/8 p-5 xl:border-l-0 xl:border-t-0">
-                  {builderMode === 'chart' ? <div className="grid h-full gap-4"><div className="rounded-[28px] border border-white/8 bg-white/[0.03] p-4"><div className="mb-4 flex items-center justify-between"><div className="text-lg font-semibold text-white">Диаграмма</div><button type="button" onClick={() => setBuilderMode(null)} className="rounded-xl p-2 text-white/45 transition hover:bg-white/[0.06] hover:text-white"><ChevronLeft className="h-4 w-4" /></button></div><div className="space-y-3"><Input value={chartTitle} onChange={(event) => setChartTitle(event.target.value)} placeholder="Название" className="h-11 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28" /><select value={chartType} onChange={(event) => setChartType(event.target.value as ChartType)} className="h-11 w-full rounded-2xl border border-white/10 bg-white/[0.03] px-3 text-sm text-white"><option value="line">Линейный</option><option value="bar">Столбчатый</option><option value="pie">Круговой</option></select><textarea value={chartValues} onChange={(event) => setChartValues(event.target.value)} className="h-36 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28" placeholder="Янв:12, Фев:18, Мар:15" /><Button onClick={insertChartBlock} className="w-full rounded-2xl">Создать диаграмму</Button></div></div><div className="overflow-hidden rounded-[28px] border border-white/8 bg-white/[0.03] p-4"><div className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">Preview</div>{chartPreview ? <img src={chartPreview} alt="preview chart" className="w-full rounded-[22px]" /> : <div className="rounded-[22px] border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/45">Заполни данные слева</div>}</div></div> : null}
-                  {builderMode === 'table' ? <div className="grid h-full gap-4"><div className="rounded-[28px] border border-white/8 bg-white/[0.03] p-4"><div className="mb-4 flex items-center justify-between"><div className="text-lg font-semibold text-white">Таблица</div><button type="button" onClick={() => setBuilderMode(null)} className="rounded-xl p-2 text-white/45 transition hover:bg-white/[0.06] hover:text-white"><ChevronLeft className="h-4 w-4" /></button></div><textarea value={tableSource} onChange={(event) => setTableSource(event.target.value)} className="h-48 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28" placeholder="Столбец 1,Столбец 2&#10;Значение,10" /><div className="mt-3 text-xs text-white/45">Новая строка — новая запись. Запятая разделяет ячейки.</div><Button onClick={insertTableBlock} className="mt-4 w-full rounded-2xl">Создать таблицу</Button></div><div className="overflow-hidden rounded-[28px] border border-white/8 bg-white/[0.03] p-4"><div className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">Preview</div>{tablePreview ? <div className="overflow-hidden rounded-[22px] border border-white/8 bg-[#0b1226] p-3" dangerouslySetInnerHTML={{ __html: tablePreview }} /> : <div className="rounded-[22px] border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/45">Заполни таблицу слева</div>}</div></div> : null}
-                  {!builderMode ? <div className="flex h-full flex-col justify-between rounded-[28px] border border-white/8 bg-white/[0.03] p-5"><div><div className="text-xs uppercase tracking-[0.22em] text-white/42">Инструменты</div><div className="mt-3 text-2xl font-semibold text-white">Рабочая зона заметки</div><p className="mt-3 text-sm leading-6 text-white/52">Диаграммы, таблицы, рисунок внутри заметки, фото и экспорт в PDF или PNG.</p></div><div className="space-y-3"><Button variant="outline" onClick={() => setBuilderMode('chart')} className="w-full justify-start rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><ChartColumn className="h-4 w-4" />Создать диаграмму</Button><Button variant="outline" onClick={() => setBuilderMode('table')} className="w-full justify-start rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Table2 className="h-4 w-4" />Создать таблицу</Button><Button variant="outline" onClick={() => setShowDrawingPad((current) => !current)} className="w-full justify-start rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"><Paintbrush className="h-4 w-4" />Рисование в заметке</Button></div></div> : null}
-                </aside>
               </div>
-            </div>
-          </section>
-        ) : null}
+            )}
+          </div>
+        </div>
       </main>
     </AppShell>
   )

@@ -149,6 +149,7 @@ function ScheduleDialog({
   subjectSuggestions,
   onLoadLessons,
   onSaveLessons,
+  onDuplicateLessons,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -158,6 +159,7 @@ function ScheduleDialog({
   subjectSuggestions: string[]
   onLoadLessons: (dayIndex: number) => Promise<Lesson[]>
   onSaveLessons: (dayIndex: number, lessons: EditorLesson[]) => Promise<void>
+  onDuplicateLessons: (dayIndex: number, lessons: EditorLesson[], mode: 'day-month' | 'week-month') => Promise<void>
 }) {
   const [step, setStep] = useState<'day' | 'editor'>('day')
   const [selectedDay, setSelectedDay] = useState(initialDay)
@@ -225,6 +227,20 @@ function ScheduleDialog({
     }
   }
 
+  const duplicate = async (mode: 'day-month' | 'week-month') => {
+    setIsBusy(true)
+    try {
+      await onDuplicateLessons(selectedDay, lessons, mode)
+      toast.success(mode === 'day-month' ? 'День продублирован на месяц вперед' : 'Неделя продублирована на месяц вперед')
+    } catch (error) {
+      toast.error('Не удалось продублировать расписание', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -283,6 +299,20 @@ function ScheduleDialog({
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => void duplicate('day-month')}
+                    className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]"
+                  >
+                    Дублировать месяц
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => void duplicate('week-month')}
+                    className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]"
+                  >
+                    Дублировать неделю
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={() => setStep('day')}
@@ -455,6 +485,7 @@ export default function SchedulePage() {
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [previewLesson, setPreviewLesson] = useState<Lesson | null>(null)
 
   useEffect(() => {
     setSelectedDay(defaultDay)
@@ -536,6 +567,49 @@ export default function SchedulePage() {
       })),
     )
     toast.success('Расписание сохранено')
+  }
+
+  const duplicateLessons = async (dayIndex: number, drafts: EditorLesson[], mode: 'day-month' | 'week-month') => {
+    const normalized = drafts
+      .map(mapEditorToPayload)
+      .filter((lesson) => lesson.subject || lesson.start_time || lesson.end_time || lesson.teacher || lesson.notes)
+
+    if (mode === 'day-month') {
+      for (let offset = 1; offset <= 4; offset += 1) {
+        await tauriInvoke('save_schedule_lessons', {
+          payload: {
+            week_number: weekNumber + offset,
+            weekday: dayIndex + 1,
+            lessons: normalized,
+          },
+        })
+      }
+      return
+    }
+
+    for (let weekday = 0; weekday < 7; weekday += 1) {
+      const dayLessons = weekday === dayIndex
+        ? normalized
+        : (await loadLessonsForDay(weekday)).map((lesson) => ({
+            subject: lesson.subject.trim(),
+            teacher: lesson.teacher.trim(),
+            room: lesson.room.trim(),
+            start_time: lesson.start_time,
+            end_time: lesson.end_time,
+            notes: lesson.notes.trim(),
+            materials: lesson.materials,
+          }))
+
+      for (let offset = 1; offset <= 4; offset += 1) {
+        await tauriInvoke('save_schedule_lessons', {
+          payload: {
+            week_number: weekNumber + offset,
+            weekday: weekday + 1,
+            lessons: dayLessons,
+          },
+        })
+      }
+    }
   }
 
   const deleteLesson = async (lesson: Lesson) => {
@@ -650,7 +724,7 @@ export default function SchedulePage() {
                 {lessons.map((lesson, index) => (
                   <article key={`${lesson.id}-${index}`} className="rounded-[26px] border border-white/7 bg-white/[0.04] p-5">
                     <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
+                      <button type="button" onClick={() => setPreviewLesson(lesson)} className="min-w-0 flex-1 text-left">
                         <div className="flex flex-wrap items-center gap-3 text-sm text-white/55">
                           <span>{lesson.order} урок</span>
                           <span>{lesson.start_time || '--:--'} - {lesson.end_time || '--:--'}</span>
@@ -668,7 +742,7 @@ export default function SchedulePage() {
                             {lesson.notes}
                           </div>
                         )}
-                      </div>
+                      </button>
 
                       <Button
                         variant="outline"
@@ -718,7 +792,33 @@ export default function SchedulePage() {
         subjectSuggestions={subjectSuggestions}
         onLoadLessons={loadLessonsForDay}
         onSaveLessons={saveDayLessons}
+        onDuplicateLessons={duplicateLessons}
       />
+
+      <Dialog open={Boolean(previewLesson)} onOpenChange={(open) => !open && setPreviewLesson(null)}>
+        <DialogContent
+          showCloseButton={false}
+          className="rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-3xl"
+        >
+          {previewLesson ? (
+            <div className="grid gap-5 p-5">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">preview</div>
+                <h3 className="mt-2 text-3xl font-semibold text-white">{previewLesson.subject || 'Без названия'}</h3>
+              </div>
+              <div className="flex flex-wrap gap-2 text-sm text-white/70">
+                <span className="rounded-full bg-primary/12 px-3 py-1 text-primary">{previewLesson.start_time || '--:--'} - {previewLesson.end_time || '--:--'}</span>
+                {previewLesson.room ? <span className="rounded-full border border-white/10 px-3 py-1">каб. {previewLesson.room}</span> : null}
+                <span className="rounded-full border border-white/10 px-3 py-1">{previewLesson.teacher || 'Учитель не указан'}</span>
+              </div>
+              <div className="rounded-[24px] border border-white/8 bg-black/15 p-4 text-sm leading-7 text-white/70">
+                {previewLesson.notes || 'Описание урока пока не заполнено.'}
+              </div>
+              {previewLesson.materials.length ? <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-4"><div className="mb-3 text-[11px] uppercase tracking-[0.22em] text-white/45">Материалы</div><div className="space-y-2 text-sm text-white/70">{previewLesson.materials.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div></div> : null}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </AppShell>
   )
 }

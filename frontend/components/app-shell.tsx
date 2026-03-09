@@ -42,10 +42,15 @@ export function AppShell({ children, displayName, email }: { children: ReactNode
     } catch {}
   }
 
+  const shellClassName = resolvedTheme === 'light'
+    ? 'theme-light-app text-slate-900'
+    : 'bg-[radial-gradient(circle_at_top,_rgba(64,88,255,0.22),_transparent_28%),linear-gradient(180deg,_#050814_0%,_#060914_100%)] text-white'
+
   return (
-    <div className={cn('min-h-screen', resolvedTheme === 'light' ? 'theme-light-app text-slate-900' : 'bg-[radial-gradient(circle_at_top,_rgba(64,88,255,0.22),_transparent_28%),linear-gradient(180deg,_#050814_0%,_#060914_100%)] text-white')}>
+    <div className={cn('min-h-screen', shellClassName)}>
       <div className="flex min-h-screen">
-        <aside className="app-sidebar hidden lg:flex lg:w-56 lg:shrink-0 lg:flex-col lg:border-r lg:border-white/6 lg:bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.16),_transparent_32%),linear-gradient(180deg,_rgba(10,12,24,0.98),_rgba(6,8,18,1))] xl:w-60">
+        <aside className="app-sidebar hidden lg:flex lg:w-56 lg:shrink-0 xl:w-60">
+          <div className="sticky top-0 flex h-screen w-full flex-col border-r border-white/6 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.16),_transparent_32%),linear-gradient(180deg,_rgba(10,12,24,0.98),_rgba(6,8,18,1))]">
           <div className="px-4 pb-4 pt-5 xl:px-5">
             <Link href="/" className="flex items-center gap-3 rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-3">
               <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-lg shadow-primary/15">
@@ -58,7 +63,7 @@ export function AppShell({ children, displayName, email }: { children: ReactNode
             </Link>
           </div>
 
-          <nav className="flex-1 space-y-1 overflow-hidden px-3 py-2 xl:px-4">
+          <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2 xl:px-4">
             {NAV_ITEMS.map((item) => {
               const active = pathname === item.href
               const Icon = item.icon
@@ -77,6 +82,7 @@ export function AppShell({ children, displayName, email }: { children: ReactNode
             <Link href="/settings" className="flex items-center gap-3 rounded-2xl px-3 py-3 text-sm text-white/60 transition-all hover:bg-white/[0.04] hover:text-white xl:px-4"><Settings className="h-4 w-4 shrink-0" />Настройки</Link>
             <button type="button" onClick={toggleTheme} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm text-white/60 transition-all hover:bg-white/[0.04] hover:text-white xl:px-4"><MoonStar className="h-4 w-4 shrink-0" />Тема</button>
             {(displayName || email) ? <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-3"><div className="truncate text-sm font-medium text-white">{displayName || 'Пользователь'}</div>{email ? <div className="mt-1 truncate text-xs text-white/45">{email}</div> : null}</div> : null}
+          </div>
           </div>
         </aside>
 
