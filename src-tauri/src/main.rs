@@ -223,6 +223,62 @@ struct DeleteTaskPayload {
     id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct LinkReferencePayload {
+    target: String,
+    display_text: String,
+    range_start: i64,
+    range_end: i64,
+    edge_type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SyncNodeLinksPayload {
+    node_id: String,
+    kind: String,
+    title: String,
+    topic: String,
+    content: String,
+    source_ref: String,
+    links: Vec<LinkReferencePayload>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct NodeQueryPayload {
+    node_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct WorkspaceNode {
+    node_id: String,
+    kind: String,
+    title: String,
+    slug: String,
+    topic: String,
+    content: String,
+    source_ref: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct WorkspaceNeighbor {
+    node_id: String,
+    kind: String,
+    title: String,
+    slug: String,
+    topic: String,
+    edge_type: String,
+    direction: String,
+    weight: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct NodeGraphSnapshot {
+    node: WorkspaceNode,
+    neighbors: Vec<WorkspaceNeighbor>,
+}
+
 #[derive(Debug, Clone)]
 struct SubjectProfile {
     teacher: String,
@@ -303,6 +359,7 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS user_notes (
             user_key TEXT NOT NULL,
             note_id TEXT NOT NULL,
+            node_id TEXT NOT NULL DEFAULT '',
             title TEXT NOT NULL DEFAULT '',
             topic TEXT NOT NULL DEFAULT '',
             content TEXT NOT NULL DEFAULT '',
@@ -313,6 +370,7 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS user_tasks (
             user_key TEXT NOT NULL,
             task_id TEXT NOT NULL,
+            node_id TEXT NOT NULL DEFAULT '',
             title TEXT NOT NULL DEFAULT '',
             topic TEXT NOT NULL DEFAULT '',
             due_date TEXT NOT NULL DEFAULT '',
@@ -323,6 +381,45 @@ fn initialize_database(path: &Path) -> Result<(), String> {
             created_at TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (user_key, task_id)
         );
+        CREATE TABLE IF NOT EXISTS workspace_nodes (
+            user_key TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            slug TEXT NOT NULL DEFAULT '',
+            topic TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL DEFAULT '',
+            source_ref TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_key, node_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_workspace_nodes_user_kind
+            ON workspace_nodes(user_key, kind, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_workspace_nodes_user_slug
+            ON workspace_nodes(user_key, slug);
+        CREATE TABLE IF NOT EXISTS workspace_edges (
+            user_key TEXT NOT NULL,
+            edge_id TEXT NOT NULL,
+            from_node_id TEXT NOT NULL,
+            to_node_id TEXT,
+            target_slug TEXT NOT NULL DEFAULT '',
+            edge_type TEXT NOT NULL DEFAULT 'wikilink',
+            display_text TEXT NOT NULL DEFAULT '',
+            range_start INTEGER NOT NULL DEFAULT 0,
+            range_end INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_key, edge_id),
+            FOREIGN KEY (user_key, from_node_id) REFERENCES workspace_nodes(user_key, node_id) ON DELETE CASCADE,
+            FOREIGN KEY (user_key, to_node_id) REFERENCES workspace_nodes(user_key, node_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_workspace_edges_from
+            ON workspace_edges(user_key, from_node_id);
+        CREATE INDEX IF NOT EXISTS idx_workspace_edges_to
+            ON workspace_edges(user_key, to_node_id);
+        CREATE INDEX IF NOT EXISTS idx_workspace_edges_target_slug
+            ON workspace_edges(user_key, target_slug);
         INSERT OR IGNORE INTO auth_session (id, user_id, email, display_name, access_token, refresh_token, updated_at)
         VALUES (1, '', '', '', '', '', '');
         INSERT OR IGNORE INTO app_settings (id, theme, hints_enabled, enable_3d, reminder_hours, telegram_enabled, telegram_bot_token, telegram_chat_id)
@@ -358,6 +455,33 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         )
         .map_err(|err| err.to_string())?;
     }
+    let note_columns = conn
+        .prepare("PRAGMA table_info(user_notes)")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|err| err.to_string())?;
+    if !note_columns.iter().any(|column| column == "node_id") {
+        conn.execute("ALTER TABLE user_notes ADD COLUMN node_id TEXT NOT NULL DEFAULT ''", [])
+            .map_err(|err| err.to_string())?;
+    }
+    conn.execute("UPDATE user_notes SET node_id = note_id WHERE TRIM(COALESCE(node_id, '')) = ''", [])
+        .map_err(|err| err.to_string())?;
+
+    let task_columns = conn
+        .prepare("PRAGMA table_info(user_tasks)")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|err| err.to_string())?;
+    if !task_columns.iter().any(|column| column == "node_id") {
+        conn.execute("ALTER TABLE user_tasks ADD COLUMN node_id TEXT NOT NULL DEFAULT ''", [])
+            .map_err(|err| err.to_string())?;
+    }
+    conn.execute("UPDATE user_tasks SET node_id = task_id WHERE TRIM(COALESCE(node_id, '')) = ''", [])
+        .map_err(|err| err.to_string())?;
     Ok(())
 }
 
@@ -413,6 +537,81 @@ fn password_hash(email: &str, password: &str) -> String {
     hasher.update(b"::");
     hasher.update(password.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+fn slugify(value: &str) -> String {
+    let mut slug = String::new();
+    let mut previous_dash = false;
+    for ch in value.trim().to_lowercase().chars() {
+        if ch.is_alphanumeric() {
+            slug.push(ch);
+            previous_dash = false;
+        } else if !previous_dash {
+            slug.push('-');
+            previous_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+fn edge_id_for(user_key: &str, from_node_id: &str, target_slug: &str, range_start: i64, range_end: i64) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(user_key.as_bytes());
+    hasher.update(b"::");
+    hasher.update(from_node_id.as_bytes());
+    hasher.update(b"::");
+    hasher.update(target_slug.as_bytes());
+    hasher.update(b"::");
+    hasher.update(range_start.to_string().as_bytes());
+    hasher.update(b"::");
+    hasher.update(range_end.to_string().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn node_content_preview(content: &str) -> String {
+    content.split_whitespace().take(120).collect::<Vec<_>>().join(" ")
+}
+
+fn extract_markdown_links(content: &str) -> Vec<LinkReferencePayload> {
+    let bytes = content.as_bytes();
+    let mut index = 0usize;
+    let mut links = Vec::new();
+    while index + 3 < bytes.len() {
+        if bytes[index] == b'[' && bytes[index + 1] == b'[' {
+            let start = index;
+            index += 2;
+            let label_start = index;
+            while index + 1 < bytes.len() && !(bytes[index] == b']' && bytes[index + 1] == b']') {
+                index += 1;
+            }
+            if index + 1 >= bytes.len() {
+                break;
+            }
+            let raw = content[label_start..index].trim();
+            index += 2;
+            if raw.is_empty() {
+                continue;
+            }
+            let (target, display_text) = raw
+                .split_once('|')
+                .map(|(left, right)| (left.trim(), right.trim()))
+                .unwrap_or((raw, raw));
+            let target_slug = slugify(target);
+            if target_slug.is_empty() {
+                continue;
+            }
+            links.push(LinkReferencePayload {
+                target: target_slug,
+                display_text: display_text.to_string(),
+                range_start: start as i64,
+                range_end: index as i64,
+                edge_type: "wikilink".to_string(),
+            });
+        } else {
+            index += 1;
+        }
+    }
+    links
 }
 
 fn build_local_session(email: &str) -> AuthSession {
@@ -719,6 +918,10 @@ async fn clear_user_data(state: &AppState, user_key: String) -> Result<(), Strin
             .map_err(|err| err.to_string())?;
         conn.execute("DELETE FROM subject_profiles WHERE user_key = ?1", [user_key.clone()])
             .map_err(|err| err.to_string())?;
+        conn.execute("DELETE FROM workspace_edges WHERE user_key = ?1", [user_key.clone()])
+            .map_err(|err| err.to_string())?;
+        conn.execute("DELETE FROM workspace_nodes WHERE user_key = ?1", [user_key.clone()])
+            .map_err(|err| err.to_string())?;
         conn.execute("DELETE FROM user_notes WHERE user_key = ?1", [user_key.clone()])
             .map_err(|err| err.to_string())?;
         conn.execute("DELETE FROM user_tasks WHERE user_key = ?1", [user_key.clone()])
@@ -766,12 +969,52 @@ async fn save_schedule_cache(
 ) -> Result<(), String> {
     db_run(state.db_path.clone(), move |conn| {
         let json = serde_json::to_string(&lessons).map_err(|err| err.to_string())?;
+        let now = Local::now().to_rfc3339();
         conn.execute(
             "INSERT INTO schedule_cache (user_key, week_number, weekday, lessons_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(user_key, week_number, weekday) DO UPDATE SET lessons_json = excluded.lessons_json, updated_at = excluded.updated_at",
-            params![user_key, week_number, weekday, json, Local::now().to_rfc3339()],
+            params![user_key.clone(), week_number, weekday, json, now.clone()],
         )
         .map_err(|err| err.to_string())?;
+
+        let source_ref = format!("schedule:{week_number}:{weekday}");
+        conn.execute(
+            "DELETE FROM workspace_nodes WHERE user_key = ?1 AND kind = 'schedule' AND source_ref = ?2",
+            params![user_key.clone(), source_ref.clone()],
+        )
+        .map_err(|err| err.to_string())?;
+
+        for (index, lesson) in lessons.iter().enumerate() {
+            let node_id = format!(
+                "schedule:{week_number}:{weekday}:{}:{}:{}",
+                index,
+                lesson.start_time.trim(),
+                slugify(&lesson.subject)
+            );
+            let mut content = String::new();
+            if !lesson.teacher.trim().is_empty() {
+                content.push_str(&format!("Teacher: {}\n", lesson.teacher.trim()));
+            }
+            if !lesson.room.trim().is_empty() {
+                content.push_str(&format!("Room: {}\n", lesson.room.trim()));
+            }
+            if !lesson.notes.trim().is_empty() {
+                content.push_str(lesson.notes.trim());
+            }
+            upsert_workspace_node_record(
+                &conn,
+                &user_key,
+                &node_id,
+                "schedule",
+                &lesson.subject,
+                "",
+                &content,
+                &source_ref,
+                &now,
+                &now,
+            )?;
+            replace_workspace_edges(&conn, &user_key, &node_id, &extract_markdown_links(&lesson.notes))?;
+        }
         Ok(())
     })
     .await
@@ -1218,8 +1461,241 @@ async fn list_notes_impl(state: &AppState, user_key: String) -> Result<Vec<UserN
     .await
 }
 
+fn upsert_workspace_node_record(
+    conn: &Connection,
+    user_key: &str,
+    node_id: &str,
+    kind: &str,
+    title: &str,
+    topic: &str,
+    content: &str,
+    source_ref: &str,
+    created_at: &str,
+    updated_at: &str,
+) -> Result<(), String> {
+    let title = title.trim();
+    let slug = slugify(if title.is_empty() { node_id } else { title });
+    conn.execute(
+        "INSERT INTO workspace_nodes (
+            user_key, node_id, kind, title, slug, topic, content, source_ref, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ON CONFLICT(user_key, node_id) DO UPDATE SET
+            kind = excluded.kind,
+            title = excluded.title,
+            slug = excluded.slug,
+            topic = excluded.topic,
+            content = excluded.content,
+            source_ref = excluded.source_ref,
+            updated_at = excluded.updated_at",
+        params![
+            user_key,
+            node_id,
+            kind,
+            title,
+            slug,
+            topic.trim(),
+            node_content_preview(content),
+            source_ref,
+            created_at,
+            updated_at,
+        ],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn resolve_target_node_id(
+    conn: &Connection,
+    user_key: &str,
+    target_slug: &str,
+    display_text: &str,
+) -> Result<Option<String>, String> {
+    let by_slug = conn
+        .query_row(
+            "SELECT node_id
+             FROM workspace_nodes
+             WHERE user_key = ?1 AND slug = ?2
+             ORDER BY datetime(updated_at) DESC
+             LIMIT 1",
+            params![user_key, target_slug],
+            |row| row.get::<_, String>(0),
+        )
+        .ok();
+    if by_slug.is_some() {
+        return Ok(by_slug);
+    }
+    if display_text.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT node_id
+             FROM workspace_nodes
+             WHERE user_key = ?1 AND lower(title) = lower(?2)
+             ORDER BY datetime(updated_at) DESC
+             LIMIT 1",
+            params![user_key, display_text.trim()],
+            |row| row.get::<_, String>(0),
+        )
+        .ok())
+}
+
+fn replace_workspace_edges(
+    conn: &Connection,
+    user_key: &str,
+    node_id: &str,
+    links: &[LinkReferencePayload],
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM workspace_edges WHERE user_key = ?1 AND from_node_id = ?2",
+        params![user_key, node_id],
+    )
+    .map_err(|err| err.to_string())?;
+
+    let now = Local::now().to_rfc3339();
+    for link in links {
+        let target_slug = slugify(&link.target);
+        if target_slug.is_empty() {
+            continue;
+        }
+        let edge_id = edge_id_for(user_key, node_id, &target_slug, link.range_start, link.range_end);
+        let to_node_id = resolve_target_node_id(conn, user_key, &target_slug, &link.display_text)?;
+        conn.execute(
+            "INSERT INTO workspace_edges (
+                user_key, edge_id, from_node_id, to_node_id, target_slug, edge_type, display_text, range_start, range_end, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                user_key,
+                edge_id,
+                node_id,
+                to_node_id,
+                target_slug,
+                if link.edge_type.trim().is_empty() { "wikilink" } else { link.edge_type.trim() },
+                link.display_text.trim(),
+                link.range_start,
+                link.range_end,
+                now,
+                now,
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+async fn sync_node_links_impl(
+    state: &AppState,
+    user_key: String,
+    payload: SyncNodeLinksPayload,
+) -> Result<OperationResult, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let now = Local::now().to_rfc3339();
+        let existing_created_at = conn
+            .query_row(
+                "SELECT created_at FROM workspace_nodes WHERE user_key = ?1 AND node_id = ?2",
+                params![user_key.clone(), payload.node_id.clone()],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_else(|_| now.clone());
+        upsert_workspace_node_record(
+            &conn,
+            &user_key,
+            &payload.node_id,
+            &payload.kind,
+            &payload.title,
+            &payload.topic,
+            &payload.content,
+            &payload.source_ref,
+            &existing_created_at,
+            &now,
+        )?;
+        replace_workspace_edges(&conn, &user_key, &payload.node_id, &payload.links)?;
+        Ok(OperationResult {
+            ok: true,
+            message: "Node links synchronized".to_string(),
+        })
+    })
+    .await
+}
+
+async fn get_node_with_neighbors_impl(
+    state: &AppState,
+    user_key: String,
+    node_id: String,
+) -> Result<NodeGraphSnapshot, String> {
+    db_run(state.db_path.clone(), move |conn| {
+        let node = conn
+            .query_row(
+                "SELECT node_id, kind, title, slug, topic, content, source_ref, created_at, updated_at
+                 FROM workspace_nodes
+                 WHERE user_key = ?1 AND node_id = ?2",
+                params![user_key.clone(), node_id.clone()],
+                |row| {
+                    Ok(WorkspaceNode {
+                        node_id: row.get(0)?,
+                        kind: row.get(1)?,
+                        title: row.get(2)?,
+                        slug: row.get(3)?,
+                        topic: row.get(4)?,
+                        content: row.get(5)?,
+                        source_ref: row.get(6)?,
+                        created_at: row.get(7)?,
+                        updated_at: row.get(8)?,
+                    })
+                },
+            )
+            .map_err(|err| err.to_string())?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT neighbor.node_id, neighbor.kind, neighbor.title, neighbor.slug, neighbor.topic,
+                        edge.edge_type, edge.direction, COUNT(*) AS weight
+                 FROM (
+                    SELECT to_node_id AS neighbor_id, edge_type, 'outgoing' AS direction
+                    FROM workspace_edges
+                    WHERE user_key = ?1 AND from_node_id = ?2 AND to_node_id IS NOT NULL
+                    UNION ALL
+                    SELECT from_node_id AS neighbor_id, edge_type, 'incoming' AS direction
+                    FROM workspace_edges
+                    WHERE user_key = ?1 AND to_node_id = ?2
+                 ) edge
+                 JOIN workspace_nodes neighbor
+                   ON neighbor.user_key = ?1 AND neighbor.node_id = edge.neighbor_id
+                 GROUP BY neighbor.node_id, neighbor.kind, neighbor.title, neighbor.slug, neighbor.topic, edge.edge_type, edge.direction
+                 ORDER BY weight DESC, neighbor.updated_at DESC, neighbor.title ASC",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![user_key, node_id], |row| {
+                Ok(WorkspaceNeighbor {
+                    node_id: row.get(0)?,
+                    kind: row.get(1)?,
+                    title: row.get(2)?,
+                    slug: row.get(3)?,
+                    topic: row.get(4)?,
+                    edge_type: row.get(5)?,
+                    direction: row.get(6)?,
+                    weight: row.get(7)?,
+                })
+            })
+            .map_err(|err| err.to_string())?;
+
+        Ok(NodeGraphSnapshot {
+            node,
+            neighbors: rows.collect::<Result<Vec<_>, _>>().map_err(|err| err.to_string())?,
+        })
+    })
+    .await
+}
+
 async fn save_note_impl(state: &AppState, user_key: String, note: UserNote) -> Result<(), String> {
     db_run(state.db_path.clone(), move |conn| {
+        let node_id = note.id.clone();
+        let updated_at = if note.updated_at.trim().is_empty() {
+            Local::now().to_rfc3339()
+        } else {
+            note.updated_at.clone()
+        };
         let created_at: String = conn
             .query_row(
                 "SELECT created_at FROM user_notes WHERE user_key = ?1 AND note_id = ?2",
@@ -1228,24 +1704,40 @@ async fn save_note_impl(state: &AppState, user_key: String, note: UserNote) -> R
             )
             .unwrap_or_else(|_| Local::now().to_rfc3339());
         conn.execute(
-            "INSERT INTO user_notes (user_key, note_id, title, topic, content, updated_at, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO user_notes (user_key, note_id, node_id, title, topic, content, updated_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(user_key, note_id) DO UPDATE SET
+                node_id = excluded.node_id,
                 title = excluded.title,
                 topic = excluded.topic,
                 content = excluded.content,
                 updated_at = excluded.updated_at",
             params![
-                user_key,
-                note.id,
-                note.title,
-                note.topic,
-                note.content,
-                note.updated_at,
-                created_at,
+                &user_key,
+                &note.id,
+                &node_id,
+                &note.title,
+                &note.topic,
+                &note.content,
+                &updated_at,
+                &created_at,
             ],
         )
         .map_err(|err| err.to_string())?;
+        upsert_workspace_node_record(
+            &conn,
+            &user_key,
+            &node_id,
+            "note",
+            &note.title,
+            &note.topic,
+            &note.content,
+            &format!("note:{}", node_id),
+            &created_at,
+            &updated_at,
+        )?;
+        let links = extract_markdown_links(&note.content);
+        replace_workspace_edges(&conn, &user_key, &node_id, &links)?;
         Ok(())
     })
     .await
@@ -1256,9 +1748,14 @@ async fn delete_note_impl(state: &AppState, user_key: String, note_id: String) -
         let changed = conn
             .execute(
                 "DELETE FROM user_notes WHERE user_key = ?1 AND note_id = ?2",
-                params![user_key, note_id],
+                params![user_key.clone(), note_id.clone()],
             )
             .map_err(|err| err.to_string())?;
+        conn.execute(
+            "DELETE FROM workspace_nodes WHERE user_key = ?1 AND node_id = ?2",
+            params![user_key, note_id],
+        )
+        .map_err(|err| err.to_string())?;
         Ok(changed > 0)
     })
     .await
@@ -1295,6 +1792,12 @@ async fn list_tasks_impl(state: &AppState, user_key: String) -> Result<Vec<UserT
 
 async fn save_task_impl(state: &AppState, user_key: String, task: UserTask) -> Result<(), String> {
     db_run(state.db_path.clone(), move |conn| {
+        let node_id = task.id.clone();
+        let updated_at = if task.updated_at.trim().is_empty() {
+            Local::now().to_rfc3339()
+        } else {
+            task.updated_at.clone()
+        };
         let created_at: String = conn
             .query_row(
                 "SELECT created_at FROM user_tasks WHERE user_key = ?1 AND task_id = ?2",
@@ -1303,9 +1806,10 @@ async fn save_task_impl(state: &AppState, user_key: String, task: UserTask) -> R
             )
             .unwrap_or_else(|_| Local::now().to_rfc3339());
         conn.execute(
-            "INSERT INTO user_tasks (user_key, task_id, title, topic, due_date, details, bucket, done, updated_at, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO user_tasks (user_key, task_id, node_id, title, topic, due_date, details, bucket, done, updated_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(user_key, task_id) DO UPDATE SET
+                node_id = excluded.node_id,
                 title = excluded.title,
                 topic = excluded.topic,
                 due_date = excluded.due_date,
@@ -1314,19 +1818,35 @@ async fn save_task_impl(state: &AppState, user_key: String, task: UserTask) -> R
                 done = excluded.done,
                 updated_at = excluded.updated_at",
             params![
-                user_key,
-                task.id,
-                task.title,
-                task.topic,
-                task.due_date,
-                task.details,
-                task.bucket,
+                &user_key,
+                &task.id,
+                &node_id,
+                &task.title,
+                &task.topic,
+                &task.due_date,
+                &task.details,
+                &task.bucket,
                 if task.done { 1 } else { 0 },
-                task.updated_at,
-                created_at,
+                &updated_at,
+                &created_at,
             ],
         )
         .map_err(|err| err.to_string())?;
+        let combined_content = format!("{}\n{}", task.details, task.due_date);
+        upsert_workspace_node_record(
+            &conn,
+            &user_key,
+            &node_id,
+            "task",
+            &task.title,
+            &task.topic,
+            &combined_content,
+            &format!("task:{}", node_id),
+            &created_at,
+            &updated_at,
+        )?;
+        let links = extract_markdown_links(&task.details);
+        replace_workspace_edges(&conn, &user_key, &node_id, &links)?;
         Ok(())
     })
     .await
@@ -1337,9 +1857,14 @@ async fn delete_task_impl(state: &AppState, user_key: String, task_id: String) -
         let changed = conn
             .execute(
                 "DELETE FROM user_tasks WHERE user_key = ?1 AND task_id = ?2",
-                params![user_key, task_id],
+                params![user_key.clone(), task_id.clone()],
             )
             .map_err(|err| err.to_string())?;
+        conn.execute(
+            "DELETE FROM workspace_nodes WHERE user_key = ?1 AND node_id = ?2",
+            params![user_key, task_id],
+        )
+        .map_err(|err| err.to_string())?;
         Ok(changed > 0)
     })
     .await
@@ -2106,6 +2631,26 @@ async fn delete_task(
     })
 }
 
+#[tauri::command]
+async fn sync_node_links(
+    payload: SyncNodeLinksPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    sync_node_links_impl(&state, user_key, payload).await
+}
+
+#[tauri::command]
+async fn get_node_with_neighbors(
+    payload: NodeQueryPayload,
+    state: State<'_, AppState>,
+) -> Result<NodeGraphSnapshot, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    get_node_with_neighbors_impl(&state, user_key, payload.node_id).await
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -2135,6 +2680,8 @@ fn main() {
             list_tasks,
             save_task,
             delete_task,
+            sync_node_links,
+            get_node_with_neighbors,
             upload_textbook,
             delete_textbook,
             list_textbooks_command,

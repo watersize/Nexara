@@ -4,6 +4,8 @@ const mockDb = {
   notes: [] as any[],
   tasks: [] as any[],
   textbooks: [] as any[],
+  nodes: [] as any[],
+  edges: [] as any[],
 }
 
 export async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -73,6 +75,48 @@ async function mockInvoke(command: string, args?: Record<string, unknown>): Prom
       const id = (args as any)?.payload?.id
       mockDb.tasks = mockDb.tasks.filter((item) => item.id !== id)
       return { ok: true, message: 'ok' }
+    }
+    case 'sync_node_links': {
+      const payload = args as any
+      const node = {
+        node_id: payload?.nodeId || payload?.node_id || '',
+        kind: payload?.kind || 'note',
+        title: payload?.title || '',
+        slug: String(payload?.title || '')
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}]+/gu, '-')
+          .replace(/^-+|-+$/g, ''),
+        topic: payload?.topic || '',
+        content: payload?.content || '',
+        source_ref: payload?.sourceRef || payload?.source_ref || '',
+        updated_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      }
+      mockDb.nodes = [node, ...mockDb.nodes.filter((item) => item.node_id !== node.node_id)]
+      mockDb.edges = (payload?.links || []).map((link: any) => ({
+        from_node_id: node.node_id,
+        target_slug: link.target,
+        display_text: link.displayText || link.display_text || '',
+      }))
+      return { ok: true, message: 'ok' }
+    }
+    case 'get_node_with_neighbors': {
+      const nodeId = (args as any)?.payload?.node_id || (args as any)?.payload?.nodeId
+      const node = mockDb.nodes.find((item) => item.node_id === nodeId)
+      return {
+        node: node || {
+          node_id: nodeId,
+          kind: 'note',
+          title: '',
+          slug: '',
+          topic: '',
+          content: '',
+          source_ref: '',
+          updated_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        },
+        neighbors: [],
+      }
     }
     case 'list_textbooks_command':
       return mockDb.textbooks
