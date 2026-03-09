@@ -1,263 +1,88 @@
-﻿# Nexara - AI Assistant Platform
+# veyo.ai
 
-A modern cross-platform desktop application built with Tauri (Rust + Web frontend) that provides AI-powered assistance with authentication, scheduling, and file management capabilities.
+`veyo.ai` is a desktop study workspace built with Tauri, Rust, Next.js, Python, and SQLite.  
+The application combines schedule management, textbooks, notes, tasks, and AI chat in one local-first app.
 
-## 🚀 Quick Start - Download & Run
+## Current release
 
-### Option 1: Download Release (Recommended)
+- Version: `1.0.0`
+- Portable build: `dist\veyo.ai\veyo.ai.exe`
+- Installer build: `dist\veyo.ai-Setup-1.0.0.exe`
 
-1. **Go to Releases**: [https://github.com/watersize/Nexara/releases](https://github.com/watersize/Nexara/releases)
-2. **Download**: `schoolmate-proto.exe` (latest release)
-3. **Run**: Double-click the executable
-4. **Done!** No installation required
+## What works
 
-### Option 2: Build from Source
+- Local account session and profile persistence
+- Weekly schedule storage by user and week number
+- Planner with persistent tasks in SQLite
+- Notebook with rich text, images, drawing, and charts
+- Textbook upload, deletion, preview, and RAG indexing
+- AI chat with context from schedule, planner, notes, and textbooks
+- Desktop notifications for tasks and upcoming lessons
+- Light and dark themes across the Next.js interface
 
-#### Prerequisites
-- **Rust** (latest stable): `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- **Go 1.26+**: `winget install GoLang.Go`
-- **Python 3.8+**: Already installed on most systems
+## Build and release
 
-#### Automated Setup (Windows PowerShell)
+### Prerequisites
+
+- Rust stable
+- Node.js with npm
+- Python 3.13+
+- Windows 10/11 x64
+
+### Development
+
 ```powershell
-# Clone repository
-git clone https://github.com/watersize/Nexara.git
-cd Nexara
+cd frontend
+npm install
+npm run build
 
-# Run automated setup
-.\run-app-final.ps1
-```
-
-This script automatically:
-- ✅ Checks for required software
-- ✅ Creates Python virtual environment
-- ✅ Installs all dependencies
-- ✅ Builds the application
-- ✅ Launches Nexara
-
-#### Manual Setup
-```powershell
-# 1. Setup Python environment
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r python_ai\requirements.txt
-
-# 2. Setup Go backend
-cd go_backend
-go mod init go_backend
-go mod tidy
-go build
 cd ..
-
-# 3. Build and run Tauri app
-cargo tauri dev
+cargo check --manifest-path src-tauri\Cargo.toml
+python -m py_compile python_ai\agent.py
 ```
 
-## 🤖 AI Configuration
-
-### GROQ API Setup (Automatic)
-
-The application includes built-in GROQ API key for immediate use. No manual configuration required!
-For repository safety, the key is bundled from a local `.secrets\groq_key.txt` file during release build and shipped inside the desktop package, so end users still do not need to configure anything manually.
-
-**Built-in Models:**
-- `llama-3.3-70b-versatile` - General AI assistant
-- `llama-3.2-90b-vision-preview` - Image processing
-
-### Custom API Key (Optional)
-
-If you want to use your own GROQ API key:
+### Release build
 
 ```powershell
-# Set environment variable
-$env:GROQ_API_KEY="your_groq_api_key_here"
-
-# Or create .env file
-echo "GROQ_API_KEY=your_groq_api_key_here" > .env
+powershell -ExecutionPolicy Bypass -File .\build-release.ps1 -SkipPythonInstall
 ```
 
-## 📦 Release Information
+Outputs:
 
-### Latest Release
-- **Version**: v0.2.1
-- **Size**: ~6.2 MB
-- **Type**: Standalone executable
-- **Requirements**: Windows 10/11 (x64)
+- `dist\veyo.ai\veyo.ai.exe`
+- `dist\veyo.ai-Setup-1.0.0.exe`
 
-### Release Features
-- ✅ **One-click execution** - no setup required
-- ✅ **Installer included** - `Nexara-Setup-0.2.1.exe`
-- ✅ **All dependencies embedded** - includes Python, Rust, web frontend
-- ✅ **Portable** - runs from any location
-- ✅ **Secure** - local authentication and data storage
-- ✅ **AI-powered** - built-in GROQ integration
+## Project structure
 
-### Download Statistics
-View release downloads and statistics: [GitHub Releases](https://github.com/watersize/Nexara/releases)
+```text
+frontend/          Next.js desktop UI
+src-tauri/         Rust/Tauri backend and SQLite storage
+python_ai/         Python AI agent and document processing
+go_backend/        Go backend experiments and cloud endpoints
+supabase/          SQL and schema-related files
+```
 
-## 🏗️ Architecture
+## Verification checklist
 
-- **Frontend**: HTML/CSS/JavaScript served by embedded web server
-- **Backend**: Rust/Tauri application with SQLite database
-- **Authentication**: Go backend with Supabase integration
-- **AI Processing**: Python-based AI services with GROQ API
-- **Database**: Local SQLite + optional Supabase cloud sync
+These commands were used for the current release:
 
-## 📋 Features
-
-### Core Functionality
-- 🔐 **Email authentication** with local fallback mode
-- 📅 **Weekly schedule management** with smart import
-- 📄 **Document processing** (PDF, DOCX, TXT, images)
-- 🤖 **AI chat assistant** powered by GROQ
-- 📚 **Textbook upload** with RAG indexing
-- 🎯 **Study plan generation** based on schedule
-
-### Smart Schedule Import
-- 📝 Text parsing from any format
-- 📸 Screenshot analysis
-- 📋 PDF and DOCX processing
-- 🔄 Automatic subject recognition
-
-### AI Capabilities
-- 💬 Conversational AI assistant
-- 📖 Document Q&A with context
-- 📊 Study plan recommendations
-- 🎨 Image analysis support
-
-## 🛠️ Development
-
-### Development Mode
 ```powershell
-# Start frontend server + Tauri app
-cargo tauri dev
+cd frontend
+npm run build
 
-# Individual components
-cd web && python -m http.server 1420          # Frontend
-cd go_backend && go run main.go               # Auth backend
-cd python_ai && python python_agent.py        # AI services
+cd ..
+cargo check --manifest-path src-tauri\Cargo.toml
+cargo test --manifest-path src-tauri\Cargo.toml
+python -m py_compile python_ai\agent.py
+powershell -ExecutionPolicy Bypass -File .\build-release.ps1 -SkipPythonInstall
 ```
 
-### Build Release
-```powershell
-# Build portable app + installer
-powershell -ExecutionPolicy Bypass -File .\build-release.ps1
+## Notes
 
-# Output: dist\Nexara\Nexara.exe and dist\Nexara-Setup-0.2.1.exe
-```
+- Icon assets are now taken directly from the repository files and are no longer generated during release build.
+- User data is stored locally in the app database and survives app restarts and updates.
+- PDF preview currently supports local in-app viewing through `react-pdf` and bundled `pdf.worker.min.mjs`.
 
-### Environment Variables
-```powershell
-# Optional: Override built-in keys
-$env:GROQ_API_KEY="your_key"
-$env:SUPABASE_URL="your_supabase_url"
-$env:SUPABASE_ANON_KEY="your_supabase_key"
-```
+## Repository
 
-## 📁 Project Structure
-
-```
-Nexara/
-├── src-tauri/           # Rust/Tauri backend
-│   ├── src/main.rs      # Main application logic
-│   └── tauri.conf.json  # Configuration
-├── web/                 # Frontend files
-│   ├── index.html
-│   ├── app.js
-│   └── style.css
-├── go_backend/          # Go authentication
-│   └── main.go
-├── python_ai/          # AI processing
-│   ├── agent.py
-│   └── requirements.txt
-├── run-app-final.ps1   # Automated setup
-└── README.md
-```
-
-## 🧪 Testing
-
-### Quick Test
-```powershell
-# Test all components
-cargo tauri dev
-
-# Test individual parts
-python -m http.server 1420                    # Frontend
-echo '{"payload":{"email":"test@example.com"}}' | go run main.go --action register
-```
-
-### Build Verification
-```powershell
-cargo check --manifest-path src-tauri/Cargo.toml
-go build ./go_backend
-python -m py_compile python_ai/agent.py
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**"go command not found"**
-```powershell
-winget install GoLang.Go
-$env:PATH += ";C:\Program Files\Go\bin"
-```
-
-**Frontend not loading**
-```powershell
-# Kill stuck processes
-tasklist | findstr python
-taskkill /PID <PID> /F
-
-# Restart server
-cd web && python -m http.server 1420
-```
-
-**Build errors**
-```powershell
-cargo clean
-cargo tauri dev
-```
-
-### Port Conflicts
-- **1420**: Frontend server
-- **Tauri**: Automatic port allocation
-
-## 📊 Release Statistics
-
-### Download Latest Release
-👉 [GitHub Releases](https://github.com/watersize/Nexara/releases)
-
-### Release Archive
-All previous releases available in the [releases section](https://github.com/watersize/Nexara/releases).
-
-### Build Artifacts
-- **Portable exe**: `dist\Nexara\Nexara.exe`
-- **Installer exe**: `dist\Nexara-Setup-0.2.1.exe`
-- **Size**: ~6.2 MB
-- **Dependencies**: All embedded
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature-name`
-3. Make changes and test
-4. Commit: `git commit -m "Add feature"`
-5. Push: `git push origin feature-name`
-6. Open Pull Request
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🔗 Links
-
-- **Homepage**: [GitHub Repository](https://github.com/watersize/Nexara)
-- **Releases**: [Download Page](https://github.com/watersize/Nexara/releases)
-- **Issues**: [Bug Reports](https://github.com/watersize/Nexara/issues)
-- **Tauri Docs**: [Documentation](https://tauri.app/)
-- **GROQ API**: [AI Models](https://groq.com/)
-
----
-
-**🚀 Nexara v0.2.1 - Bug fixing release with installer**
+- GitHub: [https://github.com/watersize/veyo.ai](https://github.com/watersize/veyo.ai)

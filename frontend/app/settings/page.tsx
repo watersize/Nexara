@@ -154,7 +154,7 @@ export default function SettingsPage() {
                     value={nickname}
                     onChange={(event) => setNickname(event.target.value)}
                     placeholder="Измени никнейм"
-                    className="h-12 rounded-2xl border-white/10 bg-black/20 pl-10 text-white placeholder:text-white/28 dark:border-white/10 dark:bg-black/20"
+                    className="h-12 rounded-2xl border-white/10 bg-black/20 pl-10 text-white placeholder:text-white/28"
                   />
                 </div>
                 <Button onClick={saveNickname} disabled={isSavingProfile || !nickname.trim()} className="rounded-2xl">
@@ -171,7 +171,9 @@ export default function SettingsPage() {
               description={`Сейчас: ${resolvedTheme === 'light' ? 'светлая' : 'тёмная'}`}
               trailing={<Switch checked={resolvedTheme !== 'light'} onCheckedChange={toggleTheme} />}
             />
-            <div className="border-t border-white/6" />
+          </SettingsCard>
+
+          <SettingsCard title="Уведомления">
             <SettingsRow
               icon={<Bell className="h-5 w-5" />}
               title="Напоминания о задачах"
@@ -185,29 +187,28 @@ export default function SettingsPage() {
               description="Показывать уведомление о ближайшем уроке"
               trailing={<Switch checked={scheduleNotifications} onCheckedChange={setScheduleNotifications} />}
             />
-          </SettingsCard>
-
-          <SettingsCard title="Уведомления">
+            <div className="border-t border-white/6" />
             <SettingsRow
               icon={<Bell className="h-5 w-5" />}
-              title="Напоминания о задачах"
+              title="Время напоминания"
               description={`Напоминать за ${reminder} ч. до дедлайна`}
-              trailing={<Input type="number" min={0} max={23} value={reminder} onChange={(event) => setReminder(Number(event.target.value) || 0)} className="h-11 w-24 rounded-2xl border-white/10 bg-black/20 text-white dark:border-white/10 dark:bg-black/20" />}
+              trailing={
+                <Input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={reminder}
+                  onChange={(event) => setReminder(Number(event.target.value) || 0)}
+                  className="h-11 w-24 rounded-2xl border-white/10 bg-black/20 text-white"
+                />
+              }
             />
           </SettingsCard>
 
           <SettingsCard title="AI помощник">
-            <SettingsRow
-              icon={<Bot className="h-5 w-5" />}
-              title="Модель AI"
-              description="llama-3.3-70b-versatile (GROQ)"
-            />
+            <SettingsRow icon={<Bot className="h-5 w-5" />} title="Модель AI" description="llama-3.3-70b-versatile (GROQ)" />
             <div className="border-t border-white/6" />
-            <SettingsRow
-              icon={<Lock className="h-5 w-5" />}
-              title="GROQ API ключ"
-              description="Встроен в приложение"
-            />
+            <SettingsRow icon={<Lock className="h-5 w-5" />} title="GROQ API ключ" description="Встроен в приложение" />
           </SettingsCard>
 
           <SettingsCard title="Данные">
@@ -216,7 +217,11 @@ export default function SettingsPage() {
               title="Очистить историю чата"
               description="Удалить все сообщения"
               trailing={
-                <Button variant="outline" onClick={() => toast.success('История чата очищена')} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]">
+                <Button
+                  variant="outline"
+                  onClick={() => toast.success('История чата очищена')}
+                  className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
+                >
                   Очистить
                 </Button>
               }
@@ -239,7 +244,11 @@ export default function SettingsPage() {
             <Button onClick={() => void saveSettings()} disabled={isSavingSettings} className="rounded-2xl px-6">
               Сохранить настройки
             </Button>
-            <Button variant="outline" onClick={() => tauriInvoke('logout_user').then(() => window.location.reload())} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white dark:border-white/10 dark:bg-transparent dark:hover:bg-white/[0.06]">
+            <Button
+              variant="outline"
+              onClick={() => tauriInvoke('logout_user').then(() => window.location.reload())}
+              className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
+            >
               Выйти
             </Button>
           </section>

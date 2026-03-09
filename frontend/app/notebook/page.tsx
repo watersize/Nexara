@@ -45,7 +45,7 @@ function stripHtml(html: string) {
 function toNoteItem(note: any): NoteItem {
   return {
     id: String(note.id || note.note_id || `note-${Date.now()}`),
-    title: String(note.title || '????? ???????'),
+    title: String(note.title || 'Новая заметка'),
     topic: String(note.topic || note.subject || ''),
     content: String(note.content || ''),
     updatedAt: String(note.updated_at || note.updatedAt || new Date().toISOString()),
@@ -77,15 +77,17 @@ function buildChartMarkup(title: string, values: number[]) {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
       <rect width="100%" height="100%" rx="26" fill="#0f172a" />
-      <text x="36" y="32" fill="#f8fafc" font-size="22" font-weight="700">${title || '??????'}</text>
+      <text x="36" y="32" fill="#f8fafc" font-size="22" font-weight="700">${title || 'График'}</text>
       <line x1="36" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#334155" stroke-width="2" />
       <line x1="36" y1="${padding}" x2="36" y2="${height - padding}" stroke="#334155" stroke-width="2" />
       <polyline fill="none" stroke="#60a5fa" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" points="${points}" />
-      ${values.map((value, index) => {
-        const x = padding + stepX * index
-        const y = height - padding - ((height - padding * 2) * value) / max
-        return `<circle cx="${x}" cy="${y}" r="6" fill="#60a5fa" />`
-      }).join('')}
+      ${values
+        .map((value, index) => {
+          const x = padding + stepX * index
+          const y = height - padding - ((height - padding * 2) * value) / max
+          return `<circle cx="${x}" cy="${y}" r="6" fill="#60a5fa" />`
+        })
+        .join('')}
       ${labels}
     </svg>`
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
@@ -101,18 +103,18 @@ export default function NotebookPage() {
   const [notes, setNotes] = useState<NoteItem[]>([])
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
-  const [editorHtml, setEditorHtml] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isDrawingOpen, setIsDrawingOpen] = useState(false)
   const [isChartOpen, setIsChartOpen] = useState(false)
-  const [chartTitle, setChartTitle] = useState('????? ??????')
+  const [chartTitle, setChartTitle] = useState('Успеваемость')
   const [chartValues, setChartValues] = useState('12, 16, 18, 10')
   const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0])
   const [fontSize, setFontSize] = useState(18)
   const editorRef = useRef<HTMLDivElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const isDrawingRef = useRef(false)
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
+  const drawRef = useRef(false)
   const saveTimeoutRef = useRef<number | null>(null)
 
   const loadNotes = async () => {
@@ -144,7 +146,7 @@ export default function NotebookPage() {
       setNotes(remote)
       setSelectedId((current) => current || remote[0]?.id || '')
     } catch (error) {
-      toast.error('?? ??????? ????????? ???????', {
+      toast.error('Не удалось загрузить заметки', {
         description: error instanceof Error ? error.message : String(error),
       })
       setNotes([])
@@ -166,14 +168,12 @@ export default function NotebookPage() {
     [notes, search],
   )
 
-  const selectedNote = filteredNotes.find((note) => note.id === selectedId) || notes.find((note) => note.id === selectedId) || filteredNotes[0]
+  const selectedNote =
+    filteredNotes.find((note) => note.id === selectedId) || notes.find((note) => note.id === selectedId) || filteredNotes[0]
 
   useEffect(() => {
-    if (selectedNote) {
-      setEditorHtml(selectedNote.content || '')
-      if (editorRef.current && editorRef.current.innerHTML !== (selectedNote.content || '')) {
-        editorRef.current.innerHTML = selectedNote.content || ''
-      }
+    if (selectedNote && editorRef.current && editorRef.current.innerHTML !== (selectedNote.content || '')) {
+      editorRef.current.innerHTML = selectedNote.content || '<p></p>'
     }
   }, [selectedNote?.id])
 
@@ -182,6 +182,14 @@ export default function NotebookPage() {
       setSelectedId(filteredNotes[0].id)
     }
   }, [filteredNotes, selectedId])
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const persistNote = async (note: NoteItem) => {
     await tauriInvoke('save_note', {
@@ -201,7 +209,7 @@ export default function NotebookPage() {
     if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current)
     saveTimeoutRef.current = window.setTimeout(() => {
       void persistNote(nextNote)
-    }, 250)
+    }, 300)
   }
 
   const updateNote = (id: string, patch: Partial<NoteItem>) => {
@@ -218,55 +226,46 @@ export default function NotebookPage() {
   const addNote = async () => {
     const note: NoteItem = {
       id: `note-${Date.now()}`,
-      title: '????? ???????',
+      title: 'Новая заметка',
       topic: '',
       content: '<p></p>',
       updatedAt: new Date().toISOString(),
     }
-    setNotes((current) => [note, ...current])
-    setSelectedId(note.id)
-    setEditorHtml(note.content)
     await persistNote(note)
+    await loadNotes()
+    setSelectedId(note.id)
   }
 
   const removeNote = async (id: string) => {
-    const next = notes.filter((note) => note.id !== id)
-    setNotes(next)
-    if (selectedId === id) {
-      setSelectedId(next[0]?.id || '')
-      setEditorHtml(next[0]?.content || '')
-    }
     try {
       await tauriInvoke('delete_note', { payload: { id } })
+      await loadNotes()
     } catch (error) {
-      toast.error('?? ??????? ??????? ???????', {
+      toast.error('Не удалось удалить заметку', {
         description: error instanceof Error ? error.message : String(error),
       })
-      await loadNotes()
     }
   }
 
   const focusEditor = () => editorRef.current?.focus()
 
+  const pushEditorHtml = () => {
+    if (!selectedNote || !editorRef.current) return
+    const html = editorRef.current.innerHTML
+    updateNote(selectedNote.id, { content: html })
+  }
+
   const applyCommand = (command: string, value?: string) => {
     focusEditor()
     document.execCommand('styleWithCSS', false, 'true')
     document.execCommand(command, false, value)
-    if (selectedNote) {
-      const html = editorRef.current?.innerHTML || ''
-      setEditorHtml(html)
-      updateNote(selectedNote.id, { content: html })
-    }
+    pushEditorHtml()
   }
 
   const insertHtml = (html: string) => {
     focusEditor()
     document.execCommand('insertHTML', false, html)
-    if (selectedNote) {
-      const nextHtml = editorRef.current?.innerHTML || ''
-      setEditorHtml(nextHtml)
-      updateNote(selectedNote.id, { content: nextHtml })
-    }
+    pushEditorHtml()
   }
 
   const handleImageFile = async (file: File) => {
@@ -276,50 +275,70 @@ export default function NotebookPage() {
       reader.onerror = reject
       reader.readAsDataURL(file)
     })
-    insertHtml(`<div class="my-4 overflow-hidden rounded-2xl border border-white/10"><img src="${dataUrl}" alt="????????" style="max-width:100%;display:block;" /></div>`)
+    insertHtml(`<div class="my-4 overflow-hidden rounded-2xl border border-white/10"><img src="${dataUrl}" alt="Изображение" style="max-width:100%;display:block;" /></div>`)
+  }
+
+  const resetCanvas = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const ratio = Math.max(window.devicePixelRatio || 1, 1)
+    canvas.width = Math.floor(rect.width * ratio)
+    canvas.height = Math.floor(rect.height * ratio)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+    ctx.fillStyle = '#0b1120'
+    ctx.fillRect(0, 0, rect.width, rect.height)
+    ctx.strokeStyle = '#60a5fa'
+    ctx.lineWidth = 3
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctxRef.current = ctx
+    drawRef.current = false
   }
 
   const openDrawing = () => {
     setIsDrawingOpen(true)
-    requestAnimationFrame(() => {
-      const canvas = canvasRef.current
-      if (!canvas) return
-      const rect = canvas.getBoundingClientRect()
-      canvas.width = rect.width * window.devicePixelRatio
-      canvas.height = rect.height * window.devicePixelRatio
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
-      ctx.fillStyle = '#0b1120'
-      ctx.fillRect(0, 0, rect.width, rect.height)
-      ctx.strokeStyle = '#60a5fa'
-      ctx.lineWidth = 3
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-    })
+    window.requestAnimationFrame(resetCanvas)
   }
 
-  const drawAt = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const pointerPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
-    const ctx = canvas?.getContext('2d')
-    if (!canvas || !ctx) return
+    if (!canvas) return { x: 0, y: 0 }
     const rect = canvas.getBoundingClientRect()
-    const x = event.clientX - rect.left
-    const y = event.clientY - rect.top
-    if (!isDrawingRef.current) {
-      ctx.beginPath()
-      ctx.moveTo(x, y)
-      isDrawingRef.current = true
-      return
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
     }
+  }
+
+  const startDraw = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const ctx = ctxRef.current
+    if (!ctx) return
+    const { x, y } = pointerPoint(event)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    drawRef.current = true
+  }
+
+  const moveDraw = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const ctx = ctxRef.current
+    if (!ctx || !drawRef.current) return
+    const { x, y } = pointerPoint(event)
     ctx.lineTo(x, y)
     ctx.stroke()
+  }
+
+  const endDraw = () => {
+    drawRef.current = false
   }
 
   const saveDrawing = () => {
     const canvas = canvasRef.current
     if (!canvas) return
-    insertHtml(`<div class="my-4 overflow-hidden rounded-2xl border border-white/10"><img src="${canvas.toDataURL('image/png')}" alt="???????" style="max-width:100%;display:block;" /></div>`)
+    insertHtml(`<div class="my-4 overflow-hidden rounded-2xl border border-white/10"><img src="${canvas.toDataURL('image/png')}" alt="Рисунок" style="max-width:100%;display:block;" /></div>`)
     setIsDrawingOpen(false)
   }
 
@@ -329,7 +348,7 @@ export default function NotebookPage() {
       .map((item) => Number(item.trim()))
       .filter((value) => Number.isFinite(value))
     if (!values.length) {
-      toast.error('????? ???????? ???????? ??? ???????')
+      toast.error('Нужно указать числа для графика')
       return
     }
     const chartDataUrl = buildChartMarkup(chartTitle, values)
@@ -342,7 +361,7 @@ export default function NotebookPage() {
       <main className="flex min-h-screen flex-1 overflow-hidden">
         <section className="flex w-[340px] shrink-0 flex-col border-r border-white/6 bg-white/[0.02]">
           <div className="flex items-center justify-between border-b border-white/6 px-5 py-5">
-            <h1 className="text-2xl font-semibold text-white">???????</h1>
+            <h1 className="text-2xl font-semibold text-white">Заметки</h1>
             <button type="button" onClick={() => void addNote()} className="rounded-xl p-2 text-white/75 transition-all hover:bg-white/[0.05] hover:text-white">
               <Plus className="h-5 w-5" />
             </button>
@@ -354,7 +373,7 @@ export default function NotebookPage() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="????? ???????..."
+                placeholder="Поиск заметок..."
                 className="h-12 rounded-2xl border-white/10 bg-white/[0.03] pl-10 text-white placeholder:text-white/28"
               />
             </div>
@@ -362,7 +381,7 @@ export default function NotebookPage() {
 
           <div className="flex-1 overflow-y-auto px-3 pb-4 scrollbar-none">
             {isLoading ? (
-              <div className="px-4 py-10 text-sm text-white/45">???????? ???????...</div>
+              <div className="px-4 py-10 text-sm text-white/45">Загрузка заметок...</div>
             ) : filteredNotes.map((note) => (
               <button
                 key={note.id}
@@ -377,7 +396,7 @@ export default function NotebookPage() {
                 <div className="truncate text-lg font-semibold text-white">{note.title}</div>
                 <div className="mt-1 line-clamp-2 text-sm text-white/55">{stripHtml(note.content)}</div>
                 <div className="mt-3 flex items-center justify-between text-xs text-white/40">
-                  <span className="rounded-full bg-primary/12 px-2 py-1 text-primary">{note.topic || '??? ????'}</span>
+                  <span className="rounded-full bg-primary/12 px-2 py-1 text-primary">{note.topic || 'Без темы'}</span>
                   <span>{new Date(note.updatedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               </button>
@@ -408,7 +427,7 @@ export default function NotebookPage() {
                   <Input
                     value={selectedNote.topic}
                     onChange={(event) => updateNote(selectedNote.id, { topic: event.target.value })}
-                    placeholder="????"
+                    placeholder="Тема"
                     className="h-10 w-48 rounded-xl border-white/10 bg-white/[0.03] text-white placeholder:text-white/28"
                   />
                   <select
@@ -430,7 +449,7 @@ export default function NotebookPage() {
                     onChange={(event) => {
                       const next = Number(event.target.value)
                       setFontSize(next)
-                      applyCommand('fontSize', next >= 28 ? '6' : next >= 24 ? '5' : next >= 20 ? '4' : next >= 18 ? '4' : next >= 16 ? '3' : '2')
+                      applyCommand('fontSize', next >= 28 ? '6' : next >= 24 ? '5' : next >= 20 ? '4' : next >= 16 ? '3' : '2')
                     }}
                     className="h-10 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-sm text-white"
                   >
@@ -468,17 +487,13 @@ export default function NotebookPage() {
                   ref={editorRef}
                   contentEditable
                   suppressContentEditableWarning
-                  onInput={(event) => {
-                    const html = (event.currentTarget as HTMLDivElement).innerHTML
-                    setEditorHtml(html)
-                    updateNote(selectedNote.id, { content: html })
-                  }}
+                  onInput={() => pushEditorHtml()}
                   className="min-h-full rounded-[28px] border border-white/8 bg-white/[0.02] p-6 text-lg leading-8 text-white outline-none [&_img]:mx-auto [&_img]:my-4 [&_img]:rounded-2xl [&_p]:mb-4"
                 />
               </div>
             </>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-white/45">?????? ??????? ??? ?????? ?????</div>
+            <div className="flex flex-1 items-center justify-center text-white/45">Выбери заметку или создай новую</div>
           )}
         </section>
       </main>
@@ -486,39 +501,27 @@ export default function NotebookPage() {
       <Dialog open={isDrawingOpen} onOpenChange={setIsDrawingOpen}>
         <DialogContent className="rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-4xl" showCloseButton={false}>
           <DialogHeader className="border-b border-white/8 px-5 py-4 text-left">
-            <DialogTitle className="text-2xl font-semibold text-white">??????? ? ???????</DialogTitle>
+            <DialogTitle className="text-2xl font-semibold text-white">Рисунок в заметке</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 p-5">
             <canvas
               ref={canvasRef}
-              className="h-[420px] w-full rounded-[24px] border border-white/10 bg-[#0b1120]"
-              onPointerDown={(event) => drawAt(event)}
-              onPointerMove={(event) => {
-                if (event.buttons === 1) drawAt(event)
-              }}
-              onPointerUp={() => {
-                isDrawingRef.current = false
-              }}
-              onPointerLeave={() => {
-                isDrawingRef.current = false
-              }}
+              className="h-[420px] w-full touch-none rounded-[24px] border border-white/10 bg-[#0b1120]"
+              onPointerDown={startDraw}
+              onPointerMove={moveDraw}
+              onPointerUp={endDraw}
+              onPointerCancel={endDraw}
+              onPointerLeave={endDraw}
             />
             <div className="flex justify-between gap-3">
               <Button
                 variant="outline"
-                onClick={() => {
-                  const canvas = canvasRef.current
-                  const ctx = canvas?.getContext('2d')
-                  if (!canvas || !ctx) return
-                  const rect = canvas.getBoundingClientRect()
-                  ctx.fillStyle = '#0b1120'
-                  ctx.fillRect(0, 0, rect.width, rect.height)
-                }}
+                onClick={resetCanvas}
                 className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
               >
-                <Eraser className="mr-2 h-4 w-4" />????????
+                <Eraser className="mr-2 h-4 w-4" />Очистить
               </Button>
-              <Button onClick={saveDrawing} className="rounded-2xl">???????? ? ???????</Button>
+              <Button onClick={saveDrawing} className="rounded-2xl">Сохранить в заметку</Button>
             </div>
           </div>
         </DialogContent>
@@ -527,12 +530,12 @@ export default function NotebookPage() {
       <Dialog open={isChartOpen} onOpenChange={setIsChartOpen}>
         <DialogContent className="rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-xl" showCloseButton={false}>
           <DialogHeader className="border-b border-white/8 px-5 py-4 text-left">
-            <DialogTitle className="text-2xl font-semibold text-white">???????? ??????</DialogTitle>
+            <DialogTitle className="text-2xl font-semibold text-white">Новый график</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 p-5">
-            <Input value={chartTitle} onChange={(event) => setChartTitle(event.target.value)} placeholder="???????? ???????" className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28" />
-            <Input value={chartValues} onChange={(event) => setChartValues(event.target.value)} placeholder="????????: 12, 16, 18, 10" className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28" />
-            <Button onClick={insertChart} className="rounded-2xl">???????? ??????</Button>
+            <Input value={chartTitle} onChange={(event) => setChartTitle(event.target.value)} placeholder="Название графика" className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28" />
+            <Input value={chartValues} onChange={(event) => setChartValues(event.target.value)} placeholder="Например: 12, 16, 18, 10" className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28" />
+            <Button onClick={insertChart} className="rounded-2xl">Вставить график</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { tauriInvoke } from '@/lib/tauri-bridge'
@@ -15,8 +14,7 @@ interface NexaraHeaderProps {
 
 export function NexaraHeader({ showBackButton = false, title }: NexaraHeaderProps) {
   const [scrolled, setScrolled] = useState(false)
-  const { resolvedTheme } = useTheme()
-  const brandIcon = resolvedTheme === 'light' ? '/icon-light-32x32.png' : '/icon-dark-32x32.png'
+  const brandIcon = '/apple-icon.png'
 
   useEffect(() => {
     const handleScroll = () => {

@@ -6,17 +6,12 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'veyo.ai',
-  description: 'Умный школьный ассистент с расписанием, учебниками, AI-чатом и планировщиком.',
+  description: 'Учебное пространство с расписанием, учебниками, AI-чатом, заметками и планировщиком.',
   generator: 'veyo.ai',
   icons: {
     icon: [
       {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
+        url: '/apple-icon.png',
       },
       {
         url: '/icon.svg',
@@ -44,12 +39,7 @@ export default function RootLayout({
   return (
     <html lang="ru" suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem={false}
-          disableTransitionOnChange
-        >
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <TauriProvider>
             {children}
             <Toaster richColors position="top-right" />

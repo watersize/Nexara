@@ -31,10 +31,10 @@ interface TaskItem {
 const LEGACY_STORAGE_KEY = 'nexara_tasks_v1'
 
 function bucketTitle(bucket: TaskBucket) {
-  if (bucket === 'today') return '???????'
-  if (bucket === 'week') return '?? ??????'
-  if (bucket === 'later') return '?????'
-  return '?????????'
+  if (bucket === 'today') return 'Сегодня'
+  if (bucket === 'week') return 'На неделе'
+  if (bucket === 'later') return 'Позже'
+  return 'Выполнено'
 }
 
 function toTaskItem(task: any): TaskItem {
@@ -104,7 +104,7 @@ export default function PlannerPage() {
       }
       setTasks(remote)
     } catch (error) {
-      toast.error('?? ??????? ????????? ??????', {
+      toast.error('Не удалось загрузить задачи', {
         description: error instanceof Error ? error.message : String(error),
       })
       setTasks([])
@@ -141,16 +141,22 @@ export default function PlannerPage() {
       done: false,
       updatedAt: new Date().toISOString(),
     }
-    await saveTaskToDb(nextTask)
-    setTasks((current) => [nextTask, ...current])
-    setDraft({
-      title: '',
-      topic: '',
-      dueDate: selectedDate,
-      details: '',
-      bucket: 'today',
-    })
-    setIsDialogOpen(false)
+    try {
+      await saveTaskToDb(nextTask)
+      await loadTasks()
+      setDraft({
+        title: '',
+        topic: '',
+        dueDate: selectedDate,
+        details: '',
+        bucket: 'today',
+      })
+      setIsDialogOpen(false)
+    } catch (error) {
+      toast.error('Не удалось сохранить задачу', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   const toggleTask = async (id: string) => {
@@ -162,19 +168,24 @@ export default function PlannerPage() {
       bucket: current.done ? 'today' : 'done',
       updatedAt: new Date().toISOString(),
     }
-    setTasks((items) => items.map((task) => (task.id === id ? updated : task)))
-    await saveTaskToDb(updated)
+    try {
+      await saveTaskToDb(updated)
+      await loadTasks()
+    } catch (error) {
+      toast.error('Не удалось обновить задачу', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   const removeTask = async (id: string) => {
-    setTasks((current) => current.filter((task) => task.id !== id))
     try {
       await tauriInvoke('delete_task', { payload: { id } })
+      await loadTasks()
     } catch (error) {
-      toast.error('?? ??????? ??????? ??????', {
+      toast.error('Не удалось удалить задачу', {
         description: error instanceof Error ? error.message : String(error),
       })
-      await loadTasks()
     }
   }
 
@@ -184,8 +195,8 @@ export default function PlannerPage() {
         <div className="rounded-[26px] border border-white/7 bg-white/[0.03] p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">???????????</div>
-              <h1 className="mt-2 text-3xl font-semibold text-white">?????? ? ????????</h1>
+              <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Планировщик</div>
+              <h1 className="mt-2 text-3xl font-semibold text-white">Задачи и дедлайны</h1>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -197,7 +208,7 @@ export default function PlannerPage() {
                 <div className="flex items-center gap-3">
                   <CalendarDays className="h-5 w-5 text-primary" />
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">????</div>
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Дата</div>
                     <div className="mt-1 text-sm font-medium text-white">
                       {format(new Date(selectedDate), 'd MMMM yyyy', { locale: ru })}
                     </div>
@@ -207,7 +218,7 @@ export default function PlannerPage() {
 
               <div className="min-w-[180px] rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
                 <div className="flex items-center justify-between text-sm text-white/60">
-                  <span>????????? ????? ???????</span>
+                  <span>Выполнено задач сегодня</span>
                   <span className="font-semibold text-white">{progress}</span>
                 </div>
                 <div className="mt-3 h-2 rounded-full bg-white/6">
@@ -234,14 +245,14 @@ export default function PlannerPage() {
                   {bucket !== 'done' && (
                     <Button onClick={() => setIsDialogOpen(true)} className="rounded-2xl">
                       <Plus className="h-4 w-4" />
-                      ????????
+                      Добавить
                     </Button>
                   )}
                 </div>
 
                 {isLoading ? (
                   <div className="rounded-[22px] border border-white/7 bg-white/[0.02] px-5 py-8 text-center text-sm text-white/45">
-                    ???????? ??????...
+                    Загрузка задач...
                   </div>
                 ) : items.length ? (
                   <div className="space-y-3">
@@ -279,7 +290,7 @@ export default function PlannerPage() {
                   </div>
                 ) : (
                   <div className="rounded-[22px] border border-white/7 bg-white/[0.02] px-5 py-8 text-center text-sm text-white/45">
-                    ??? ????? ? ???????
+                    Нет задач в разделе
                   </div>
                 )}
               </section>
@@ -292,7 +303,7 @@ export default function PlannerPage() {
         type="button"
         onClick={() => setIsDialogOpen(true)}
         className="fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-[24px] bg-primary text-white shadow-[0_22px_65px_-15px_rgba(92,113,255,0.85)] transition-all duration-200 hover:scale-105 active:scale-95"
-        aria-label="???????? ??????"
+        aria-label="Добавить задачу"
       >
         <Plus className="h-7 w-7" />
       </button>
@@ -304,16 +315,16 @@ export default function PlannerPage() {
         >
           <div className="flex items-start justify-between border-b border-white/8 px-5 py-4">
             <DialogHeader className="space-y-2 text-left">
-              <DialogTitle className="text-2xl font-semibold text-white">????? ??????</DialogTitle>
+              <DialogTitle className="text-2xl font-semibold text-white">Новая задача</DialogTitle>
               <DialogDescription className="text-sm leading-6 text-white/55">
-                ?????? ???? ? ?????? ?????? ? ?????? ?????? ????????????.
+                Выбери дату, тему и детали задачи для нужного раздела.
               </DialogDescription>
             </DialogHeader>
           </div>
 
           <div className="space-y-4 px-5 py-5">
             <div className="space-y-2">
-              <Label className="text-white/70">????</Label>
+              <Label className="text-white/70">Дата</Label>
               <Input
                 type="date"
                 value={draft.dueDate}
@@ -326,52 +337,59 @@ export default function PlannerPage() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white/70">???????? ??????</Label>
+              <Label className="text-white/70">Название задачи</Label>
               <Input
                 value={draft.title}
                 onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                placeholder="????????: ??????? ??????? ?? ??????"
+                placeholder="Например: решить задачи по алгебре"
                 className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28"
               />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label className="text-white/70">????</Label>
+                <Label className="text-white/70">Тема</Label>
                 <Input
                   value={draft.topic}
                   onChange={(event) => setDraft((current) => ({ ...current, topic: event.target.value }))}
-                  placeholder="????????: ??????????? ?? ?????"
+                  placeholder="Например: Математика"
                   className="h-12 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-white/70">??????</Label>
+                <Label className="text-white/70">Раздел</Label>
                 <select
                   value={draft.bucket}
                   onChange={(event) => setDraft((current) => ({ ...current, bucket: event.target.value as TaskBucket }))}
                   className="h-12 w-full rounded-2xl border border-white/10 bg-black/20 px-3 text-white"
                 >
-                  <option value="today">???????</option>
-                  <option value="week">?? ??????</option>
-                  <option value="later">?????</option>
+                  <option value="today">Сегодня</option>
+                  <option value="week">На неделе</option>
+                  <option value="later">Позже</option>
                 </select>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white/70">???????????</Label>
+              <Label className="text-white/70">Описание</Label>
               <Textarea
                 value={draft.details}
                 onChange={(event) => setDraft((current) => ({ ...current, details: event.target.value }))}
-                placeholder="????? ?????? ?????????"
-                className="min-h-24 rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28"
+                placeholder="Детали, шаги или комментарии"
+                className="min-h-[140px] rounded-2xl border-white/10 bg-black/20 text-white placeholder:text-white/28"
               />
             </div>
 
-            <div className="flex justify-end">
-              <Button onClick={() => void createTask()} className="rounded-2xl px-6">
-                ????????? ??????
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsDialogOpen(false)}
+                className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
+              >
+                Отмена
+              </Button>
+              <Button onClick={() => void createTask()} className="rounded-2xl">
+                Сохранить
               </Button>
             </div>
           </div>

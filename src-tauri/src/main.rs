@@ -262,7 +262,7 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         );
         CREATE TABLE IF NOT EXISTS app_settings (
             id INTEGER PRIMARY KEY CHECK (id = 1),
-            theme TEXT NOT NULL DEFAULT 'theme-light',
+            theme TEXT NOT NULL DEFAULT 'theme-dark',
             hints_enabled INTEGER NOT NULL DEFAULT 1,
             enable_3d INTEGER NOT NULL DEFAULT 1,
             reminder_hours INTEGER NOT NULL DEFAULT 18,
@@ -326,7 +326,7 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         INSERT OR IGNORE INTO auth_session (id, user_id, email, display_name, access_token, refresh_token, updated_at)
         VALUES (1, '', '', '', '', '', '');
         INSERT OR IGNORE INTO app_settings (id, theme, hints_enabled, enable_3d, reminder_hours, telegram_enabled, telegram_bot_token, telegram_chat_id)
-        VALUES (1, 'theme-light', 1, 1, 18, 0, '', '');
+        VALUES (1, 'theme-dark', 1, 1, 18, 0, '', '');
         "#,
     )
     .map_err(|err| err.to_string())?;
@@ -2046,7 +2046,7 @@ async fn save_note(
     save_note_impl(&state, user_key, payload.note).await?;
     Ok(OperationResult {
         ok: true,
-        message: "??????? ?????????".to_string(),
+        message: "Заметка сохранена".to_string(),
     })
 }
 
@@ -2061,9 +2061,9 @@ async fn delete_note(
     Ok(OperationResult {
         ok: removed,
         message: if removed {
-            "??????? ???????".to_string()
+            "Заметка удалена".to_string()
         } else {
-            "??????? ?? ???????".to_string()
+            "Заметка не найдена".to_string()
         },
     })
 }
@@ -2084,7 +2084,7 @@ async fn save_task(
     save_task_impl(&state, user_key, payload.task).await?;
     Ok(OperationResult {
         ok: true,
-        message: "?????? ?????????".to_string(),
+        message: "Задача сохранена".to_string(),
     })
 }
 
@@ -2099,9 +2099,9 @@ async fn delete_task(
     Ok(OperationResult {
         ok: removed,
         message: if removed {
-            "?????? ???????".to_string()
+            "Задача удалена".to_string()
         } else {
-            "?????? ?? ???????".to_string()
+            "Задача не найдена".to_string()
         },
     })
 }

@@ -107,7 +107,7 @@ def run_api() -> None:
         fail("FastAPI is not installed")
     import uvicorn
 
-    app = FastAPI(title="veyo.ai", version="0.3.0")
+    app = FastAPI(title="veyo.ai", version="1.0.0")
 
     @app.get("/health")
     async def health() -> Dict[str, Any]:

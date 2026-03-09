@@ -41,9 +41,6 @@ if (-not $SkipPythonInstall) {
   & $pythonExe -m pip install -r (Join-Path $root 'python_ai\requirements.txt') pyinstaller pillow
 }
 
-Write-Host 'Generating branding...'
-& $pythonExe (Join-Path $root 'tools\generate_branding.py')
-
 Write-Host 'Building bundled AI agent...'
 Push-Location (Join-Path $root 'python_ai')
 & $pythonExe -m PyInstaller `

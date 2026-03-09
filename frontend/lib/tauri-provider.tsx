@@ -50,28 +50,30 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
     async function pushStartupNotifications() {
       if (!appState?.authSession) return
       const email = appState.authSession.email || 'guest'
-      const todayKey = `nexara_notify_tasks:${email}:${new Date().toISOString().slice(0, 10)}`
+      const dateKey = new Date().toISOString().slice(0, 10)
+      const tasksSessionKey = `veyo_notify_tasks:${email}:${dateKey}`
+      const scheduleSessionKey = `veyo_notify_schedule:${email}:${dateKey}`
+
       try {
         const tasks = await tauriInvoke<any[]>('list_tasks')
         const dueToday = Array.isArray(tasks)
-          ? tasks.filter((task: any) => !task.done && (task.due_date || task.dueDate) === new Date().toISOString().slice(0, 10))
+          ? tasks.filter((task: any) => !task.done && (task.due_date || task.dueDate) === dateKey)
           : []
-        if (appState.settings?.hints_enabled && dueToday.length && !window.sessionStorage.getItem(todayKey)) {
+        if (appState.settings?.hints_enabled && dueToday.length && !window.sessionStorage.getItem(tasksSessionKey)) {
           await tauriInvoke('notify_status', {
             title: 'veyo.ai',
-            body: `?? ??????? ???? ${dueToday.length} ?????`,
+            body: `На сегодня есть ${dueToday.length} активных задач`,
           })
-          window.sessionStorage.setItem(todayKey, '1')
+          window.sessionStorage.setItem(tasksSessionKey, '1')
         }
       } catch {}
 
       try {
-        const notifyKey = `nexara_notify_schedule:${email}:${new Date().toISOString().slice(0, 10)}`
         const lessons = await tauriInvoke<any[]>('get_schedule_for_weekday', {
           weekNumber: appState.defaultWeekNumber,
           weekday: appState.defaultWeekday,
         })
-        if (!Array.isArray(lessons) || !lessons.length || window.sessionStorage.getItem(notifyKey)) return
+        if (!Array.isArray(lessons) || !lessons.length || window.sessionStorage.getItem(scheduleSessionKey)) return
         const now = new Date()
         const upcoming = lessons.find((lesson) => {
           if (!lesson?.start_time) return false
@@ -84,9 +86,9 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
         if (appState.settings?.enable_3d && upcoming) {
           await tauriInvoke('notify_status', {
             title: 'veyo.ai',
-            body: `????? ${upcoming.subject} ? ${upcoming.start_time}`,
+            body: `Скоро ${upcoming.subject} в ${upcoming.start_time}`,
           })
-          window.sessionStorage.setItem(notifyKey, '1')
+          window.sessionStorage.setItem(scheduleSessionKey, '1')
         }
       } catch {}
     }
@@ -97,7 +99,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
   if (!isReady) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground">???????? ????????????...</div>
+        <div className="animate-pulse text-muted-foreground">Загрузка приложения...</div>
       </div>
     )
   }
