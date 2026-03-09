@@ -10,6 +10,7 @@ import { AppShell } from '@/components/app-shell'
 import { MiniGraphPreview } from '@/components/graph/mini-graph-preview'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Calendar } from '@/components/ui/calendar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -121,12 +122,23 @@ function TaskCard({
   onToggle: () => void
   onDelete: () => void
 }) {
+  const Tip = ({ children, label, side = 'bottom' }: { children: React.ReactNode, label: string, side?: 'top' | 'bottom' | 'left' | 'right' }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side} className="text-[11px] font-medium bg-neutral-900 border-white/10 text-white px-2 py-1 rounded-lg shadow-xl">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+
   return (
-    <article className="rounded-[22px] border border-white/8 bg-black/15 p-4">
+    <article className="rounded-[22px] border border-white/8 bg-black/15 p-4 group">
       <div className="flex items-start gap-3">
-        <button type="button" onClick={onToggle} className="mt-1 text-white/70 hover:text-white">
-          {task.done ? <Check className="h-5 w-5 text-primary" /> : <div className="h-5 w-5 rounded-full border border-white/20" />}
-        </button>
+        <Tip label={task.done ? 'Вернуть' : 'Выполнить'}>
+          <button type="button" onClick={onToggle} className="mt-1 text-white/70 hover:text-white">
+            {task.done ? <Check className="h-5 w-5 text-primary" /> : <div className="h-5 w-5 rounded-full border border-white/20" />}
+          </button>
+        </Tip>
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
           <div className={cn('text-base font-semibold text-white', task.done && 'line-through opacity-50')}>{task.title}</div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-white/55">
@@ -136,9 +148,11 @@ function TaskCard({
           </div>
           {task.details ? <div className="mt-3 line-clamp-3 text-sm leading-6 text-white/55">{task.details}</div> : null}
         </button>
-        <button type="button" onClick={onDelete} className="text-white/45 hover:text-white">
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <Tip label="Удалить">
+          <button type="button" onClick={onDelete} className="text-white/45 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </Tip>
       </div>
     </article>
   )
@@ -148,6 +162,15 @@ export default function PlannerPage() {
   const appState = useAppState()
   const user = appState?.authSession ? { displayName: appState.authSession.display_name, email: appState.authSession.email } : undefined
   const [tasks, setTasks] = useState<TaskItem[]>([])
+  
+  const Tip = ({ children, label, side = 'bottom' }: { children: React.ReactNode, label: string, side?: 'top' | 'bottom' | 'left' | 'right' }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side} className="text-[11px] font-medium bg-neutral-900 border-white/10 text-white px-2 py-1 rounded-lg shadow-xl">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
   const [view, setView] = useState<ViewMode>('board')
   const [loading, setLoading] = useState(true)
   const [composerOpen, setComposerOpen] = useState(false)
@@ -158,6 +181,7 @@ export default function PlannerPage() {
   const [graph, setGraph] = useState<any>(null)
   const [linkMenu, setLinkMenu] = useState<{ open: boolean, pos: number } | null>(null)
   const [hoveredNode, setHoveredNode] = useState<{ title: string, kind: string, details?: string } | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
   const loadTasks = async () => {
     setLoading(true)
@@ -183,7 +207,35 @@ export default function PlannerPage() {
         return
       }
       try {
-        setGraph(await fetchNodeWithNeighbors(activeTaskId))
+        const rawGraph = await fetchNodeWithNeighbors(activeTaskId)
+        
+        // Hydrate notebook folders into the graph
+        if (typeof window !== 'undefined') {
+            const savedFolders = localStorage.getItem('veyo_notebook_folders')
+            if (savedFolders) {
+                try {
+                    const folders: {id: string, name: string, color: string}[] = JSON.parse(savedFolders)
+                    const folderSlugs = new Map(folders.map(f => [
+                        f.name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, ''), 
+                        f
+                    ]))
+                    const systemFolders = new Map([
+                        ['личные', { name: 'Личные', color: '#79a7ff' }],
+                        ['работа', { name: 'Работа', color: '#ff79a7' }]
+                    ])
+                    
+                    rawGraph.neighbors = rawGraph.neighbors.map((n: any) => {
+                        const folder = folderSlugs.get(n.slug) || systemFolders.get(n.slug)
+                        if (folder) {
+                            return { ...n, kind: 'folder', title: folder.name, color: folder.color }
+                        }
+                        return n
+                    })
+                } catch {}
+            }
+        }
+        
+        setGraph(rawGraph)
       } catch {
         setGraph(null)
       }
@@ -192,13 +244,16 @@ export default function PlannerPage() {
   }, [activeTaskId, tasks])
 
   const grouped = useMemo(
-    () => ({
-      today: tasks.filter((task) => !task.done && task.bucket === 'today'),
-      week: tasks.filter((task) => !task.done && task.bucket === 'week'),
-      later: tasks.filter((task) => !task.done && task.bucket === 'later'),
-      done: tasks.filter((task) => task.done),
-    }),
-    [tasks],
+    () => {
+      const pool = selectedDate ? tasks.filter(t => t.dueDate === selectedDate) : tasks
+      return {
+        today: pool.filter((task) => !task.done && task.bucket === 'today'),
+        week: pool.filter((task) => !task.done && task.bucket === 'week'),
+        later: pool.filter((task) => !task.done && task.bucket === 'later'),
+        done: pool.filter((task) => task.done),
+      }
+    },
+    [tasks, selectedDate],
   )
 
   const activeTask = tasks.find((task) => task.id === activeTaskId) || null
@@ -348,10 +403,12 @@ export default function PlannerPage() {
                   Канбан, список, точные временные слоты и связи с заметками, учебниками и расписанием.
                 </p>
               </div>
-              <Button onClick={() => openDraft()} className="rounded-2xl">
-                <Plus className="h-4 w-4" />
-                Добавить задачу
-              </Button>
+              <Tip label="Новая задача">
+                <Button onClick={() => openDraft()} className="rounded-2xl">
+                  <Plus className="h-4 w-4" />
+                  Добавить задачу
+                </Button>
+              </Tip>
             </div>
             <div className="mt-6 grid gap-4 md:grid-cols-4">
               <Metric label="Сегодня" value={grouped.today.length} hint="слотов" />
@@ -368,20 +425,24 @@ export default function PlannerPage() {
                 <div className="mt-2 text-2xl font-semibold text-white">Управление задачами</div>
               </div>
               <div className="inline-flex rounded-2xl border border-white/8 bg-white/[0.03] p-1">
-                <button
-                  type="button"
-                  onClick={() => setView('board')}
-                  className={cn('rounded-xl px-3 py-2', view === 'board' ? 'bg-primary text-white' : 'text-white/55')}
-                >
-                  <Columns2 className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setView('list')}
-                  className={cn('rounded-xl px-3 py-2', view === 'list' ? 'bg-primary text-white' : 'text-white/55')}
-                >
-                  <ListTodo className="h-4 w-4" />
-                </button>
+                <Tip label="Канбан-доска">
+                  <button
+                    type="button"
+                    onClick={() => setView('board')}
+                    className={cn('rounded-xl px-3 py-2 transition-all', view === 'board' ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-105' : 'text-white/55 hover:text-white')}
+                  >
+                    <Columns2 className="h-4 w-4" />
+                  </button>
+                </Tip>
+                <Tip label="Список задач">
+                  <button
+                    type="button"
+                    onClick={() => setView('list')}
+                    className={cn('rounded-xl px-3 py-2 transition-all', view === 'list' ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-105' : 'text-white/55 hover:text-white')}
+                  >
+                    <ListTodo className="h-4 w-4" />
+                  </button>
+                </Tip>
               </div>
             </div>
             <div className="space-y-3">
@@ -411,6 +472,82 @@ export default function PlannerPage() {
             </div>
           </div>
         </section>
+
+        {/* ═══ WEEEK-style Weekly Strip ═══ */}
+        <section className="mt-6 rounded-[28px] border border-white/8 bg-white/[0.03] px-6 py-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Неделя</div>
+            <div className="text-sm font-medium text-white/60">{format(new Date(), "LLLL yyyy", { locale: ru })}</div>
+          </div>
+          <div className="grid grid-cols-7 gap-2">
+            {(() => {
+              const today = new Date()
+              const dayOfWeek = today.getDay() || 7 // 1=Mon ... 7=Sun
+              return Array.from({ length: 7 }, (_, i) => {
+                const date = new Date(today)
+                date.setDate(today.getDate() - dayOfWeek + 1 + i)
+                const dateStr = format(date, 'yyyy-MM-dd')
+                const isToday = dateStr === format(today, 'yyyy-MM-dd')
+                const dayTasks = tasks.filter(t => t.dueDate === dateStr)
+                const doneTasks = dayTasks.filter(t => t.done).length
+                const totalTasks = dayTasks.length
+                const density = totalTasks === 0 ? 0 : totalTasks <= 2 ? 1 : totalTasks <= 4 ? 2 : 3
+
+                return (
+                  <div
+                    key={i}
+                    onClick={() => setSelectedDate(prev => prev === dateStr ? null : dateStr)}
+                    className={cn(
+                      'flex flex-col items-center gap-1 py-3 px-2 rounded-2xl transition-all cursor-pointer group',
+                      selectedDate === dateStr ? 'bg-blue-500/20 border border-blue-500/40 shadow-lg shadow-blue-500/10' : isToday ? 'bg-blue-500/8 border border-blue-500/20' : 'border border-transparent hover:bg-white/[0.04] hover:border-white/8'
+                    )}
+                  >
+                    <span className="text-[10px] uppercase tracking-wider text-white/40 font-medium">
+                      {format(date, 'EEEEEE', { locale: ru })}
+                    </span>
+                    <span className={cn(
+                      'text-xl font-bold tabular-nums transition-colors',
+                      selectedDate === dateStr ? 'text-blue-300' : isToday ? 'text-blue-400' : 'text-white/80 group-hover:text-white'
+                    )}>
+                      {format(date, 'd')}
+                    </span>
+                    {/* Density dots */}
+                    <div className="flex items-center gap-0.5 mt-0.5">
+                      {totalTasks > 0 ? (
+                        Array.from({ length: Math.min(totalTasks, 4) }, (_, j) => (
+                          <div
+                            key={j}
+                            className={cn(
+                              'h-1.5 w-1.5 rounded-full transition-colors',
+                              j < doneTasks ? 'bg-emerald-400' : 'bg-blue-400/60'
+                            )}
+                          />
+                        ))
+                      ) : (
+                        <div className="h-1.5 w-1.5 rounded-full bg-white/10" />
+                      )}
+                    </div>
+                    {totalTasks > 0 && (
+                      <span className={cn(
+                        'text-[10px] font-medium mt-0.5',
+                        doneTasks === totalTasks ? 'text-emerald-400' : 'text-white/40'
+                      )}>
+                        {doneTasks}/{totalTasks}
+                      </span>
+                    )}
+                  </div>
+                )
+              })
+            })()}
+          </div>
+        </section>
+
+        {selectedDate && (
+          <div className="mt-4 flex items-center gap-3 px-1">
+            <span className="text-sm text-white/60">Фильтр: <span className="text-white font-medium">{format(new Date(selectedDate), 'd MMMM, EEEE', { locale: ru })}</span></span>
+            <button onClick={() => setSelectedDate(null)} className="text-xs text-blue-400 hover:underline">Сбросить</button>
+          </div>
+        )}
 
         <section className="mt-8">
           {view === 'board' ? (
@@ -626,27 +763,28 @@ export default function PlannerPage() {
                   <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Превью узла</div>
                   {hoveredNode ? (
                       <div className="mt-6 flex-1 flex flex-col relative">
-                          <div className="inline-flex items-center rounded-full bg-white/5 px-3 py-1 text-xs text-white/70 w-fit">{hoveredNode.kind === 'note' ? 'Заметка' : hoveredNode.kind === 'schedule' ? 'Расписание' : 'Задача'}</div>
+                          <div className="inline-flex items-center rounded-full bg-white/5 px-3 py-1 text-xs text-white/70 w-fit">{hoveredNode.kind === 'folder' ? 'Папка' : hoveredNode.kind === 'note' ? 'Заметка' : hoveredNode.kind === 'schedule' ? 'Расписание' : 'Задача'}</div>
                           
                           <div className="absolute top-0 right-0">
-                             <Button 
-                               variant="ghost" 
-                               size="icon" 
-                               className="h-8 w-8 text-white/40 hover:text-white"
-                               title="Скачать Markdown"
-                               onClick={() => {
-                                 const blob = new Blob([`# ${hoveredNode.title}\n\n*${hoveredNode.kind}*\n\n${hoveredNode.details || ''}`], { type: 'text/markdown' })
-                                 const url = URL.createObjectURL(blob)
-                                 const a = document.createElement('a')
-                                 a.href = url
-                                 a.download = `${hoveredNode.title}.md`
-                                 a.click()
-                                 URL.revokeObjectURL(url)
-                                 toast.success('Файл скачан')
-                               }}
-                             >
-                                <Download className="h-4 w-4" />
-                             </Button>
+                             <Tip label="Скачать Markdown" side="top">
+                               <Button 
+                                 variant="ghost" 
+                                 size="icon" 
+                                 className="h-8 w-8 text-white/40 hover:text-white"
+                                 onClick={() => {
+                                   const blob = new Blob([`# ${hoveredNode.title}\n\n*${hoveredNode.kind}*\n\n${hoveredNode.details || ''}`], { type: 'text/markdown' })
+                                   const url = URL.createObjectURL(blob)
+                                   const a = document.createElement('a')
+                                   a.href = url
+                                   a.download = `${hoveredNode.title}.md`
+                                   a.click()
+                                   URL.revokeObjectURL(url)
+                                   toast.success('Файл скачан')
+                                 }}
+                               >
+                                  <Download className="h-4 w-4" />
+                               </Button>
+                             </Tip>
                           </div>
 
                           <h3 
@@ -698,7 +836,7 @@ export default function PlannerPage() {
                                 cx={x}
                                 cy={y}
                                 r={isHovered ? "22" : "18"}
-                                fill={neighbor.kind === 'note' ? '#10b981' : neighbor.kind === 'schedule' ? '#a855f7' : '#3b82f6'}
+                                fill={neighbor.kind === 'folder' ? (neighbor.color || '#f59e0b') : neighbor.kind === 'note' ? '#10b981' : neighbor.kind === 'schedule' ? '#a855f7' : '#3b82f6'}
                                 className="transition-all duration-300"
                               />
                               <text x={x} y={y + 34} textAnchor="middle" fill={isHovered ? "white" : "rgba(255,255,255,0.72)"} fontSize={isHovered ? "14" : "13"} fontWeight={isHovered ? "bold" : "normal"}>

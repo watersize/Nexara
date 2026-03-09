@@ -59,10 +59,13 @@ export function getSnapGuides(objects: HybridObject[], moving: HybridObject) {
 }
 
 function renderCadShape(object: HybridObject) {
-  if (object.shape === 'circle') return <ellipse cx="50%" cy="50%" rx="38%" ry="38%" fill={object.fill} stroke={object.stroke} strokeDasharray={object.dash ? '10 7' : undefined} />
-  if (object.shape === 'arc') return <path d="M 18 84 A 32 32 0 0 1 82 84" fill="none" stroke={object.stroke} strokeDasharray={object.dash ? '10 7' : undefined} />
-  if (object.shape === 'polygon') return <polygon points="20 50, 38 16, 72 16, 90 50, 72 84, 38 84" fill={object.fill} stroke={object.stroke} />
-  return <rect x="14%" y="22%" width="72%" height="56%" rx="18" fill={object.fill} stroke={object.stroke} strokeDasharray={object.dash ? '10 7' : undefined} />
+  const sw = object.strokeWidth || 3
+  if (object.shape === 'circle') return <ellipse cx="50%" cy="50%" rx="46%" ry="46%" fill={object.fill || 'transparent'} stroke={object.stroke} strokeWidth={sw} strokeDasharray={object.dash ? '10 7' : undefined} filter="url(#shadow)" />
+  if (object.shape === 'triangle') return <polygon points="50,8 95,92 5,92" fill={object.fill || 'transparent'} stroke={object.stroke} strokeWidth={sw} strokeLinejoin="round" filter="url(#shadow)" />
+  if (object.shape === 'rhombus') return <polygon points="50,8 92,50 50,92 8,50" fill={object.fill || 'transparent'} stroke={object.stroke} strokeWidth={sw} strokeLinejoin="round" filter="url(#shadow)" />
+  if (object.shape === 'arc') return <path d="M 12 88 A 38 38 0 0 1 88 88" fill="none" stroke={object.stroke} strokeWidth={sw} strokeDasharray={object.dash ? '10 7' : undefined} filter="url(#shadow)" />
+  if (object.shape === 'polygon') return <polygon points="26 50, 38 12, 62 12, 74 50, 62 88, 38 88" fill={object.fill || 'transparent'} stroke={object.stroke} strokeWidth={sw} filter="url(#shadow)" />
+  return <rect x="8%" y="12%" width="84%" height="76%" rx="12" fill={object.fill || 'transparent'} stroke={object.stroke} strokeWidth={sw} strokeDasharray={object.dash ? '10 7' : undefined} filter="url(#shadow)" />
 }
 
 export function HybridObjectWrapper({
@@ -198,7 +201,7 @@ export function HybridObjectWrapper({
       />
 
       <div className="pointer-events-none h-full w-full overflow-visible">
-        {object.type === 'cad' ? <svg viewBox="0 0 100 100" className="h-full w-full pointer-events-none">{renderCadShape(object)}</svg> : null}
+        {object.type === 'cad' ? <svg viewBox="0 0 100 100" className="h-full w-full pointer-events-none"><defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.15" /></filter></defs>{renderCadShape(object)}</svg> : null}
 
         {object.type === 'stroke' && object.points?.length ? (
           <svg viewBox={`0 0 ${object.w} ${object.h}`} className="h-full w-full pointer-events-none">
@@ -227,11 +230,11 @@ export function HybridObjectWrapper({
             <div
               key={pivot}
               className={cn(
-                "absolute h-3 w-3 border border-blue-500 bg-white shadow-sm cursor-nwse-resize z-[60]",
-                pivot === 'nw' && "-left-1.5 -top-1.5",
-                pivot === 'ne' && "-right-1.5 -top-1.5 cursor-nesw-resize",
-                pivot === 'sw' && "-left-1.5 -bottom-1.5 cursor-nesw-resize",
-                pivot === 'se' && "-right-1.5 -bottom-1.5"
+                "absolute h-3.5 w-3.5 rounded-full border-2 border-blue-500 bg-white shadow-md cursor-nwse-resize z-[60] transition-transform hover:scale-125",
+                pivot === 'nw' && "-left-[7px] -top-[7px]",
+                pivot === 'ne' && "-right-[7px] -top-[7px] cursor-nesw-resize",
+                pivot === 'sw' && "-left-[7px] -bottom-[7px] cursor-nesw-resize",
+                pivot === 'se' && "-right-[7px] -bottom-[7px]"
               )}
               onPointerDown={(e) => handlePointerDown(e, pivot)}
             />

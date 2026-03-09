@@ -1,6 +1,6 @@
 [package]
 name = "schoolmate-proto"
-version = "1.2.2"
+version = "1.4.1"
 description = "Desktop-first professional workspace built with Tauri"
 authors = ["Codex"]
 edition = "2021"

@@ -36,7 +36,7 @@ export function AuthModal({ isOpen }: { isOpen: boolean }) {
     <Dialog open={isOpen} onOpenChange={() => {}}>
       <DialogContent showCloseButton={false} className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">Вход в учебное пространство</DialogTitle>
+          <DialogTitle className="text-2xl font-bold">Вход в рабочее пространство</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-4">

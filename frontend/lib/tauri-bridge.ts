@@ -6,6 +6,7 @@ const mockDb = {
   textbooks: [] as any[],
   nodes: [] as any[],
   edges: [] as any[],
+  folders: [] as any[],
 }
 
 export async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -63,6 +64,31 @@ async function mockInvoke(command: string, args?: Record<string, unknown>): Prom
       const id = (args as any)?.payload?.id
       mockDb.notes = mockDb.notes.filter((item) => item.id !== id)
       return { ok: true, message: 'ok' }
+    }
+    case 'list_note_folders':
+      return mockDb.folders
+    case 'save_note_folder': {
+      const folder = (args as any)?.payload?.folder
+      mockDb.folders = [folder, ...mockDb.folders.filter((item) => item.id !== folder.id)]
+      return { ok: true, message: 'ok' }
+    }
+    case 'delete_note_folder': {
+      const folderId = (args as any)?.payload?.id
+      mockDb.folders = mockDb.folders.filter((item) => item.id !== folderId)
+      mockDb.notes = mockDb.notes.map((n) => n.folder_id === folderId ? { ...n, folder_id: '' } : n)
+      return { ok: true, message: 'ok' }
+    }
+    case 'search_notes': {
+      const query = ((args as any)?.payload?.query || '').toLowerCase()
+      const results = mockDb.notes
+        .filter((n) => n.title?.toLowerCase().includes(query))
+        .slice(0, 10)
+        .map((n) => ({ id: n.id, title: n.title, kind: 'note' }))
+      const folderResults = mockDb.folders
+        .filter((f) => f.name?.toLowerCase().includes(query))
+        .slice(0, 5)
+        .map((f) => ({ id: f.id, title: f.name, kind: 'folder' }))
+      return [...results, ...folderResults]
     }
     case 'list_tasks':
       return mockDb.tasks
@@ -136,6 +162,7 @@ async function mockInvoke(command: string, args?: Record<string, unknown>): Prom
       mockDb.notes = []
       mockDb.tasks = []
       mockDb.textbooks = []
+      mockDb.folders = []
       return { ok: true, message: 'ok' }
     default:
       console.log(`Mock ignored command: ${command}`)

@@ -10,17 +10,20 @@ import { useAppState } from '@/lib/tauri-provider'
 import { useTheme } from 'next-themes'
 import { Bell, Bot, Download, Lock, MoonStar, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 function SettingsCard({
   title,
   children,
+  dark,
 }: {
   title: string
   children: React.ReactNode
+  dark: boolean
 }) {
   return (
-    <section className="overflow-hidden rounded-[26px] border border-white/7 bg-white/[0.03]">
-      <div className="border-b border-white/6 px-5 py-4 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+    <section className={cn('overflow-hidden rounded-[26px] border', dark ? 'border-white/7 bg-white/[0.03]' : 'border-gray-200 bg-white')}>
+      <div className={cn('border-b px-5 py-4 text-[11px] font-semibold uppercase tracking-[0.24em]', dark ? 'border-white/6 text-white/35' : 'border-gray-100 text-gray-400')}>
         {title}
       </div>
       <div>{children}</div>
@@ -34,22 +37,24 @@ function SettingsRow({
   description,
   trailing,
   danger = false,
+  dark = true,
 }: {
   icon: React.ReactNode
   title: string
   description: string
   trailing?: React.ReactNode
   danger?: boolean
+  dark?: boolean
 }) {
   return (
     <div className="flex items-center justify-between gap-4 px-5 py-4">
       <div className="flex min-w-0 items-center gap-4">
-        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${danger ? 'bg-red-500/10 text-red-300' : 'bg-white/[0.04] text-white/70'}`}>
+        <div className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl', danger ? 'bg-red-500/10 text-red-400' : (dark ? 'bg-white/[0.04] text-white/70' : 'bg-gray-100 text-gray-500'))}>
           {icon}
         </div>
         <div className="min-w-0">
-          <div className={`text-lg font-semibold ${danger ? 'text-red-300' : 'text-white'}`}>{title}</div>
-          <div className="mt-1 text-sm text-white/50">{description}</div>
+          <div className={cn('text-lg font-semibold', danger ? 'text-red-400' : (dark ? 'text-white' : 'text-gray-900'))}>{title}</div>
+          <div className={cn('mt-1 text-sm', dark ? 'text-white/50' : 'text-gray-500')}>{description}</div>
         </div>
       </div>
       {trailing}
@@ -84,7 +89,8 @@ export default function SettingsPage() {
     }
   }, [appState, setTheme])
 
-  const version = useMemo(() => 'veyo.ai v1.0.0', [])
+  const version = useMemo(() => 'veyo.ai v1.4.1', [])
+  const dark = resolvedTheme !== 'light'
 
   const saveSettings = async (themeOverride?: 'light' | 'dark') => {
     setIsSavingSettings(true)
@@ -133,28 +139,28 @@ export default function SettingsPage() {
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
-      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-1 flex-col px-5 py-8 sm:px-8">
+      <main className={cn('mx-auto flex min-h-screen w-full max-w-5xl flex-1 flex-col px-5 py-8 sm:px-8')}>
         <div className="space-y-6">
-          <section className="rounded-[26px] border border-white/7 bg-white/[0.03] p-5">
+          <section className={cn('rounded-[26px] border p-5', dark ? 'border-white/7 bg-white/[0.03]' : 'border-gray-200 bg-white')}>
             <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-4">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-2xl font-semibold text-white">
                   {(nickname || user?.displayName || user?.email || 'П').slice(0, 1).toUpperCase()}
                 </div>
                 <div>
-                  <div className="text-2xl font-semibold text-white">{nickname || user?.displayName || 'Пользователь'}</div>
-                  <div className="mt-1 text-sm text-white/50">{user?.email || 'Профиль не заполнен'}</div>
+                  <div className={cn('text-2xl font-semibold', dark ? 'text-white' : 'text-gray-900')}>{nickname || user?.displayName || 'Пользователь'}</div>
+                  <div className={cn('mt-1 text-sm', dark ? 'text-white/50' : 'text-gray-500')}>{user?.email || 'Профиль не заполнен'}</div>
                 </div>
               </div>
 
               <div className="flex w-full max-w-md flex-col gap-3 md:w-auto">
                 <div className="relative">
-                  <Pencil className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-white/35" />
+                  <Pencil className={cn('pointer-events-none absolute left-3 top-3.5 h-4 w-4', dark ? 'text-white/35' : 'text-gray-400')} />
                   <Input
                     value={nickname}
                     onChange={(event) => setNickname(event.target.value)}
                     placeholder="Измени никнейм"
-                    className="h-12 rounded-2xl border-white/10 bg-black/20 pl-10 text-white placeholder:text-white/28"
+                    className={cn('h-12 rounded-2xl pl-10', dark ? 'border-white/10 bg-black/20 text-white placeholder:text-white/28' : 'border-gray-200 bg-gray-50 text-gray-900')}
                   />
                 </div>
                 <Button onClick={saveNickname} disabled={isSavingProfile || !nickname.trim()} className="rounded-2xl">
@@ -164,79 +170,62 @@ export default function SettingsPage() {
             </div>
           </section>
 
-          <SettingsCard title="Внешний вид">
+          <SettingsCard title="Внешний вид" dark={dark}>
             <SettingsRow
               icon={<MoonStar className="h-5 w-5" />}
               title="Переключение темы"
               description={`Сейчас: ${resolvedTheme === 'light' ? 'светлая' : 'тёмная'}`}
               trailing={<Switch checked={resolvedTheme !== 'light'} onCheckedChange={toggleTheme} />}
+              dark={dark}
             />
           </SettingsCard>
 
-          <SettingsCard title="Уведомления">
-            <SettingsRow
-              icon={<Bell className="h-5 w-5" />}
-              title="Напоминания о задачах"
-              description="Показывать уведомления о задачах на сегодня"
-              trailing={<Switch checked={taskNotifications} onCheckedChange={setTaskNotifications} />}
-            />
-            <div className="border-t border-white/6" />
-            <SettingsRow
-              icon={<Download className="h-5 w-5" />}
-              title="Напоминания о расписании"
-              description="Показывать уведомление о ближайшем уроке"
-              trailing={<Switch checked={scheduleNotifications} onCheckedChange={setScheduleNotifications} />}
-            />
-            <div className="border-t border-white/6" />
+          <SettingsCard title="Уведомления" dark={dark}>
+            <SettingsRow icon={<Bell className="h-5 w-5" />} title="Напоминания о задачах" description="Показывать уведомления о задачах на сегодня" dark={dark} trailing={<Switch checked={taskNotifications} onCheckedChange={setTaskNotifications} />} />
+            <div className={cn('border-t', dark ? 'border-white/6' : 'border-gray-100')} />
+            <SettingsRow icon={<Download className="h-5 w-5" />} title="Напоминания о расписании" description="Показывать уведомление о ближайшем уроке" dark={dark} trailing={<Switch checked={scheduleNotifications} onCheckedChange={setScheduleNotifications} />} />
+            <div className={cn('border-t', dark ? 'border-white/6' : 'border-gray-100')} />
             <SettingsRow
               icon={<Bell className="h-5 w-5" />}
               title="Время напоминания"
               description={`Напоминать за ${reminder} ч. до дедлайна`}
+              dark={dark}
               trailing={
                 <Input
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={reminder}
+                  type="number" min={0} max={23} value={reminder}
                   onChange={(event) => setReminder(Number(event.target.value) || 0)}
-                  className="h-11 w-24 rounded-2xl border-white/10 bg-black/20 text-white"
+                  className={cn('h-11 w-24 rounded-2xl', dark ? 'border-white/10 bg-black/20 text-white' : 'border-gray-200 bg-gray-50 text-gray-900')}
                 />
               }
             />
           </SettingsCard>
 
-          <SettingsCard title="AI помощник">
-            <SettingsRow icon={<Bot className="h-5 w-5" />} title="Модель AI" description="llama-3.3-70b-versatile (GROQ)" />
-            <div className="border-t border-white/6" />
-            <SettingsRow icon={<Lock className="h-5 w-5" />} title="GROQ API ключ" description="Встроен в приложение" />
+          <SettingsCard title="AI помощник" dark={dark}>
+            <SettingsRow icon={<Bot className="h-5 w-5" />} title="Модель AI" description="llama-3.3-70b-versatile (GROQ)" dark={dark} />
+            <div className={cn('border-t', dark ? 'border-white/6' : 'border-gray-100')} />
+            <SettingsRow icon={<Lock className="h-5 w-5" />} title="GROQ API ключ" description="Встроен в приложение" dark={dark} />
           </SettingsCard>
 
-          <SettingsCard title="Данные">
+          <SettingsCard title="Данные" dark={dark}>
             <SettingsRow
               icon={<Trash2 className="h-5 w-5" />}
               title="Очистить историю чата"
               description="Удалить все сообщения"
+              dark={dark}
               trailing={
-                <Button
-                  variant="outline"
-                  onClick={() => toast.success('История чата очищена')}
-                  className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
-                >
-                  Очистить
-                </Button>
+                <Button variant="outline" onClick={() => toast.success('История чата очищена')}
+                  className={cn('rounded-2xl', dark ? 'border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50')}
+                >Очистить</Button>
               }
             />
-            <div className="border-t border-white/6" />
+            <div className={cn('border-t', dark ? 'border-white/6' : 'border-gray-100')} />
             <SettingsRow
               icon={<Trash2 className="h-5 w-5" />}
               title="Удалить аккаунт"
               description="Заметки, задачи и расписание на этом устройстве"
               danger
-              trailing={
-                <Button variant="destructive" onClick={() => tauriInvoke('delete_account').then(() => window.location.reload())} className="rounded-2xl">
-                  Удалить
-                </Button>
-              }
+              dark={dark}
+              trailing={<Button variant="destructive" onClick={() => tauriInvoke('delete_account').then(() => window.location.reload())} className="rounded-2xl">Удалить</Button>}
             />
           </SettingsCard>
 
@@ -253,7 +242,7 @@ export default function SettingsPage() {
             </Button>
           </section>
 
-          <section className="rounded-[26px] border border-white/7 bg-white/[0.03] p-5 text-sm text-white/50">
+          <section className={cn('rounded-[26px] border p-5 text-sm', dark ? 'border-white/7 bg-white/[0.03] text-white/50' : 'border-gray-200 bg-white text-gray-500')}>
             {version}
           </section>
         </div>

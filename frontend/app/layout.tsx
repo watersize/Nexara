@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { TauriProvider } from '@/lib/tauri-provider'
 import './globals.css'
 
@@ -32,7 +33,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <TauriProvider>
-            {children}
+            <TooltipProvider delayDuration={400}>
+              {children}
+            </TooltipProvider>
             <Toaster richColors position="top-right" />
           </TauriProvider>
         </ThemeProvider>

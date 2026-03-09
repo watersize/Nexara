@@ -64,7 +64,7 @@ export default function HomePage() {
           <section className="mb-10 rounded-[34px] border border-border/50 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_34%),linear-gradient(180deg,_rgba(11,13,23,0.98),_rgba(6,8,18,1))] p-8 text-center">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary"><span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />veyo.ai workspace</div>
             <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/5 p-2 shadow-[0_24px_80px_-36px_rgba(91,140,255,0.45)]"><img src={brandIcon} alt="veyo.ai" className="h-full w-full object-cover" /></div>
-            <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">Твоё учебное<span className="block bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">пространство</span></h1>
+            <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">Твоё рабочее<span className="block bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">пространство</span></h1>
             <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-white/60">Локальная база, учебники, задачи, расписание и AI-помощник в одном минималистичном рабочем пространстве.</p>
           </section>
 

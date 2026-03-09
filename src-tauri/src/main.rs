@@ -205,6 +205,37 @@ struct DeleteNotePayload {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+struct NoteFolder {
+    id: String,
+    name: String,
+    color: String,
+    parent_id: String,
+    sort_order: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SaveNoteFolderPayload {
+    folder: NoteFolder,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DeleteNoteFolderPayload {
+    id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SearchNotesPayload {
+    query: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct SearchNoteResult {
+    id: String,
+    title: String,
+    kind: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct UserTask {
     id: String,
     title: String,
@@ -362,10 +393,22 @@ fn initialize_database(path: &Path) -> Result<(), String> {
             PRIMARY KEY (user_key, material_hash),
             FOREIGN KEY(material_hash) REFERENCES material_store(hash) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS note_folders (
+            user_key TEXT NOT NULL,
+            folder_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            color TEXT NOT NULL DEFAULT '#3b82f6',
+            parent_id TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_key, folder_id)
+        );
         CREATE TABLE IF NOT EXISTS user_notes (
             user_key TEXT NOT NULL,
             note_id TEXT NOT NULL,
             node_id TEXT NOT NULL DEFAULT '',
+            folder_id TEXT NOT NULL DEFAULT '',
             title TEXT NOT NULL DEFAULT '',
             topic TEXT NOT NULL DEFAULT '',
             content TEXT NOT NULL DEFAULT '',
@@ -473,6 +516,10 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         .map_err(|err| err.to_string())?;
     if !note_columns.iter().any(|column| column == "node_id") {
         conn.execute("ALTER TABLE user_notes ADD COLUMN node_id TEXT NOT NULL DEFAULT ''", [])
+            .map_err(|err| err.to_string())?;
+    }
+    if !note_columns.iter().any(|column| column == "folder_id") {
+        conn.execute("ALTER TABLE user_notes ADD COLUMN folder_id TEXT NOT NULL DEFAULT ''", [])
             .map_err(|err| err.to_string())?;
     }
     conn.execute("UPDATE user_notes SET node_id = note_id WHERE TRIM(COALESCE(node_id, '')) = ''", [])
@@ -2683,6 +2730,187 @@ async fn get_node_with_neighbors(
     get_node_with_neighbors_impl(&state, user_key, payload.node_id).await
 }
 
+#[tauri::command]
+async fn list_note_folders(state: State<'_, AppState>) -> Result<Vec<NoteFolder>, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    db_run(state.db_path.clone(), move |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT folder_id, name, color, parent_id, sort_order
+                 FROM note_folders
+                 WHERE user_key = ?1
+                 ORDER BY sort_order ASC, name ASC",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([user_key], |row| {
+                Ok(NoteFolder {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    parent_id: row.get(3)?,
+                    sort_order: row.get(4)?,
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|err| err.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn save_note_folder(
+    payload: SaveNoteFolderPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let folder = payload.folder;
+    db_run(state.db_path.clone(), move |conn| {
+        let now = Local::now().to_rfc3339();
+        let created_at: String = conn
+            .query_row(
+                "SELECT created_at FROM note_folders WHERE user_key = ?1 AND folder_id = ?2",
+                params![user_key.clone(), folder.id.clone()],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| now.clone());
+        conn.execute(
+            "INSERT INTO note_folders (user_key, folder_id, name, color, parent_id, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(user_key, folder_id) DO UPDATE SET
+                name = excluded.name,
+                color = excluded.color,
+                parent_id = excluded.parent_id,
+                sort_order = excluded.sort_order,
+                updated_at = excluded.updated_at",
+            params![
+                &user_key,
+                &folder.id,
+                &folder.name,
+                &folder.color,
+                &folder.parent_id,
+                folder.sort_order,
+                &created_at,
+                &now,
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+        Ok(OperationResult {
+            ok: true,
+            message: "Папка сохранена".to_string(),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn delete_note_folder(
+    payload: DeleteNoteFolderPayload,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let folder_id = payload.id;
+    db_run(state.db_path.clone(), move |conn| {
+        // Move notes out of folder
+        conn.execute(
+            "UPDATE user_notes SET folder_id = '' WHERE user_key = ?1 AND folder_id = ?2",
+            params![user_key.clone(), folder_id.clone()],
+        )
+        .map_err(|err| err.to_string())?;
+        conn.execute(
+            "DELETE FROM note_folders WHERE user_key = ?1 AND folder_id = ?2",
+            params![user_key, folder_id],
+        )
+        .map_err(|err| err.to_string())?;
+        Ok(OperationResult {
+            ok: true,
+            message: "Папка удалена".to_string(),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn search_notes(
+    payload: SearchNotesPayload,
+    state: State<'_, AppState>,
+) -> Result<Vec<SearchNoteResult>, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    let query = payload.query.trim().to_lowercase();
+    db_run(state.db_path.clone(), move |conn| {
+        let pattern = format!("%{}%", query);
+        let mut results = Vec::new();
+        // Search notes
+        let mut stmt = conn
+            .prepare(
+                "SELECT note_id, title FROM user_notes
+                 WHERE user_key = ?1 AND lower(title) LIKE ?2
+                 ORDER BY datetime(updated_at) DESC
+                 LIMIT 10",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![user_key.clone(), pattern.clone()], |row| {
+                Ok(SearchNoteResult {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    kind: "note".to_string(),
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        for row in rows {
+            results.push(row.map_err(|err| err.to_string())?);
+        }
+        // Search folders
+        let mut stmt2 = conn
+            .prepare(
+                "SELECT folder_id, name FROM note_folders
+                 WHERE user_key = ?1 AND lower(name) LIKE ?2
+                 ORDER BY name ASC
+                 LIMIT 5",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows2 = stmt2
+            .query_map(params![user_key.clone(), pattern.clone()], |row| {
+                Ok(SearchNoteResult {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    kind: "folder".to_string(),
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        for row in rows2 {
+            results.push(row.map_err(|err| err.to_string())?);
+        }
+        // Search textbooks
+        let mut stmt3 = conn
+            .prepare(
+                "SELECT hash, file_name FROM material_store
+                 WHERE lower(file_name) LIKE ?1
+                 LIMIT 5",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows3 = stmt3
+            .query_map(params![pattern], |row| {
+                Ok(SearchNoteResult {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    kind: "textbook".to_string(),
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        for row in rows3 {
+            results.push(row.map_err(|err| err.to_string())?);
+        }
+        Ok(results)
+    })
+    .await
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -2714,6 +2942,10 @@ fn main() {
             delete_task,
             sync_node_links,
             get_node_with_neighbors,
+            list_note_folders,
+            save_note_folder,
+            delete_note_folder,
+            search_notes,
             upload_textbook,
             delete_textbook,
             list_textbooks_command,

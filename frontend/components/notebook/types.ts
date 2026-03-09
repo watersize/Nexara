@@ -2,7 +2,7 @@ export type HybridPoint = { x: number; y: number }
 
 export type HybridObjectKind = 'text' | 'image' | 'cad' | 'stroke' | 'table' | 'diagram'
 
-export type HybridCadShape = 'rectangle' | 'circle' | 'arc' | 'polygon'
+export type HybridCadShape = 'rectangle' | 'circle' | 'arc' | 'polygon' | 'triangle' | 'rhombus'
 
 export type HybridObject = {
   id: string

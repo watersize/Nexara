@@ -1,17 +1,26 @@
 'use client'
 
-import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { jsPDF } from 'jspdf'
 import { useTheme } from 'next-themes'
-import { ChevronLeft, Grid3x3, Layers3, MoveRight, NotebookPen, PenTool, Plus, Trash, Type, ZoomIn, ZoomOut, Copy, Trash2, Pencil, MousePointer2, Ruler, Workflow, Circle, Square, Type as TypeIcon } from 'lucide-react'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  ChevronLeft, FileText, FolderOpen, FolderPlus, Grid3x3, Layers3,
+  MoreHorizontal, NotebookPen, PenTool, Plus, Search, Trash, Trash2,
+  Type, ZoomIn, ZoomOut, Copy, Pencil, MousePointer2, Circle, Square,
+  Triangle, Hexagon, Table, BarChart3, PieChart, Download, Upload,
+  Star, Clock, FileDown, FolderClosed, Hash, ChevronRight,
+  Diamond, Minus, Undo2, Redo2, Palette, Move, ImageIcon
+} from 'lucide-react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { AppShell } from '@/components/app-shell'
 import { getLassoBox, getSnapGuides, HybridObjectWrapper, resolveLassoSelection } from '@/components/notebook/hybrid-object-wrapper'
+import { BlockEditor, blocksToMarkdown, markdownToBlocks, type Block } from '@/components/notebook/block-editor'
+import { WikiLinkPopup } from '@/components/notebook/wiki-link-popup'
 import type { HybridObject, HybridPoint, LassoSelection, NoteFolder } from '@/components/notebook/types'
-export type ToolKind = 'select' | 'text' | 'image' | 'cad' | 'stroke' | 'table' | 'diagram'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,683 +29,976 @@ import { useAppState } from '@/lib/tauri-provider'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
+/* ── Constants ────────────────────────────────────────── */
 const PREFIX = '__VEYO_HYBRID_NOTE__::'
-const MIN = 44
-
-type Point = HybridPoint
-type NoteObject = HybridObject
+const makeId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`
+const sortObjects = (objects: HybridObject[]) => [...objects].sort((a, b) => a.z - b.z)
 
 type NoteDoc = {
   version: number
   title: string
   folderId?: string
+  mode: 'editor' | 'canvas'
+  blocks: Block[]
   prefs: { dims: boolean; snap: boolean }
-  objects: NoteObject[]
+  objects: HybridObject[]
 }
 
-type NoteRecord = { id: string; title: string; topic: string; createdAt: string; updatedAt: string; doc: NoteDoc }
+type NoteRecord = {
+  id: string
+  title: string
+  topic: string
+  folderId: string
+  createdAt: string
+  updatedAt: string
+  doc: NoteDoc
+}
 
-const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`
-const sortObjects = (objects: NoteObject[]) => [...objects].sort((a, b) => a.z - b.z)
-const snap = (value: number, isometric = false) => Math.round(value / (isometric ? 24 : 20)) * (isometric ? 24 : 20)
+type FolderRecord = {
+  id: string
+  name: string
+  color: string
+  parent_id: string
+  sort_order: number
+}
 
-const svgImage = (kind: 'book' | 'diagram') => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(kind === 'book' ? `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420"><rect width="640" height="420" rx="28" fill="#eef2fb"/><rect x="40" y="44" width="560" height="328" rx="20" fill="#fff" stroke="#adc0e7" stroke-width="3"/><line x1="84" y1="106" x2="548" y2="106" stroke="#b7c8e5" stroke-width="2"/><line x1="84" y1="154" x2="548" y2="154" stroke="#d0dbef" stroke-width="2"/><line x1="84" y1="202" x2="548" y2="202" stroke="#d0dbef" stroke-width="2"/><line x1="84" y1="250" x2="548" y2="250" stroke="#d0dbef" stroke-width="2"/><circle cx="496" cy="232" r="38" fill="none" stroke="#4c74ff" stroke-width="6"/><path d="M184 302 C242 258 318 258 376 304" fill="none" stroke="#23324a" stroke-width="5"/></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="240"><rect width="420" height="240" rx="24" fill="#0d1628"/><rect x="36" y="34" width="118" height="54" rx="16" fill="#162544" stroke="#82a8ff"/><rect x="244" y="34" width="136" height="54" rx="16" fill="#0f2231" stroke="#93ffd1"/><rect x="136" y="146" width="148" height="54" rx="16" fill="#251b31" stroke="#ffd87e"/><path d="M154 61 H244" stroke="#82a8ff" stroke-width="3" stroke-dasharray="8 6"/><path d="M210 88 V146" stroke="#ffd87e" stroke-width="3"/></svg>`)}`
-
-const stripHtml = (html: string) => typeof window === 'undefined' ? html : ((node) => ((node.innerHTML = html || ''), (node.textContent || '').replace(/\s+/g, ' ').trim()))(document.createElement('div'))
-
-const parseDoc = (raw: string, title: string, fallbackFolderId?: string): NoteDoc => {
+const parseDoc = (raw: string, title: string, folderId?: string): NoteDoc => {
   if (raw.startsWith(PREFIX)) {
-    try { 
-        const parsed = JSON.parse(raw.slice(PREFIX.length)) as NoteDoc
-        return {
-           ...parsed,
-           folderId: parsed.folderId || fallbackFolderId
-        }
-    } catch {}
+    try {
+      const parsed = JSON.parse(raw.slice(PREFIX.length)) as NoteDoc
+      return {
+        ...parsed,
+        mode: parsed.mode || 'editor',
+        blocks: parsed.blocks || [{ id: makeId('blk'), type: 'heading1', content: title }, { id: makeId('blk'), type: 'paragraph', content: '' }],
+        folderId: parsed.folderId || folderId || '',
+      }
+    } catch { /* fall through */ }
   }
-  
-  const text = stripHtml(raw).trim()
+  const text = raw.replace(/<[^>]*>/g, '').trim()
   return {
-    version: 1,
+    version: 2,
     title,
-    folderId: fallbackFolderId,
+    folderId: folderId || '',
+    mode: 'editor',
+    blocks: text
+      ? markdownToBlocks(text)
+      : [{ id: makeId('blk'), type: 'heading1', content: title }, { id: makeId('blk'), type: 'paragraph', content: '' }],
     prefs: { dims: true, snap: true },
-    objects: [
-      { id: makeId('text'), type: 'text', name: 'Text', x: 200, y: 200, w: 400, h: 200, rot: 0, z: 1, locked: false, visible: true, opacity: 1, fontSize: 16, text: text || 'Пустая заметка' },
-    ],
+    objects: [],
   }
 }
 
 const createDoc = (title: string, folderId?: string): NoteDoc => ({
-  version: 1,
+  version: 2,
   title,
-  folderId,
-  prefs: { dims: true, snap: true },
-  objects: [
-    { id: makeId('text'), type: 'text', name: 'Title', x: 72, y: 72, w: 600, h: 200, rot: 0, z: 1, locked: false, visible: true, opacity: 1, variant: 'title', fontSize: 48, text: `${title}` },
+  folderId: folderId || '',
+  mode: 'editor',
+  blocks: [
+    { id: makeId('blk'), type: 'heading1', content: title },
+    { id: makeId('blk'), type: 'paragraph', content: '' },
   ],
+  prefs: { dims: true, snap: true },
+  objects: [],
 })
 
 const serialize = (doc: NoteDoc) => `${PREFIX}${JSON.stringify(doc)}`
 const snippet = (doc: NoteDoc) => {
-  const text = doc.objects.filter((object) => object.type === 'text').map((object) => object.text || '').join(' ').trim()
-  return text ? `${text.slice(0, 150)}${text.length > 150 ? '...' : ''}` : `CAD ${doc.objects.filter((object) => object.type === 'cad').length}, stroke ${doc.objects.filter((object) => object.type === 'stroke').length}`
+  const text = doc.blocks?.map(b => b.content).filter(Boolean).join(' ').trim() || ''
+  return text ? `${text.slice(0, 120)}${text.length > 120 ? '...' : ''}` : 'Пустая заметка'
 }
 
-const exportNotePdf = (note: NoteRecord, dark: boolean) => {
-  const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [700, 1040] })
-  pdf.setFillColor(dark ? '#0b0d17' : '#f5f1e8')
-  pdf.rect(0, 0, 1040, 700, 'F')
-  sortObjects(note.doc.objects).filter((object) => object.visible).forEach((object) => {
-    if (object.type === 'text') {
-      pdf.setTextColor(dark ? '#f4f7ff' : '#182235')
-      pdf.setFontSize(object.fontSize || (object.variant === 'title' ? 20 : 12))
-      pdf.text(pdf.splitTextToSize(object.text || '', object.w * 0.7), object.x * 0.7, object.y * 0.7 + 20)
-    }
-    if (object.type === 'cad') {
-      pdf.setDrawColor(object.stroke || '#86adff')
-      object.dash ? pdf.setLineDashPattern([6, 4], 0) : pdf.setLineDashPattern([], 0)
-      if (object.shape === 'circle') pdf.ellipse((object.x + object.w / 2) * 0.7, (object.y + object.h / 2) * 0.7, object.w * 0.25, object.h * 0.25)
-      else pdf.roundedRect(object.x * 0.7, object.y * 0.7, object.w * 0.7, object.h * 0.7, 12, 12)
-    }
-  })
-  pdf.save(`${note.title || 'hybrid-note'}.pdf`)
-}
+const Tip = ({ children, label, side = 'bottom' }: { children: React.ReactNode; label: string; side?: 'top' | 'bottom' | 'left' | 'right' }) => (
+  <Tooltip>
+    <TooltipTrigger asChild>{children}</TooltipTrigger>
+    <TooltipContent side={side} className="text-[11px] font-medium bg-neutral-900 border-white/10 text-white px-2 py-1 rounded-lg shadow-xl">{label}</TooltipContent>
+  </Tooltip>
+)
 
+/* ── Main Component ───────────────────────────────────── */
 export default function NotebookPage() {
   const appState = useAppState()
   const { resolvedTheme } = useTheme()
   const dark = resolvedTheme !== 'light'
   const user = appState?.authSession ? { displayName: appState.authSession.display_name, email: appState.authSession.email } : undefined
-  const palette = dark
-    ? { page: '#0b0d17', shell: 'linear-gradient(180deg,#0d1221,#070910)', panel: 'rgba(14,18,31,.92)', soft: 'rgba(255,255,255,.045)', strong: 'rgba(18,23,39,.98)', border: 'rgba(173,190,255,.16)', text: '#f4f7ff', muted: 'rgba(244,247,255,.62)', accent: '#79a7ff', accentSoft: 'rgba(121,167,255,.12)', dim: '#ffd87e', ghost: 'rgba(121,167,255,.28)' }
-    : { page: '#f5f1e8', shell: 'linear-gradient(180deg,#fff,#f1e8d8)', panel: 'rgba(255,252,248,.94)', soft: 'rgba(255,255,255,.72)', strong: 'rgba(255,255,255,.98)', border: 'rgba(73,82,108,.15)', text: '#182235', muted: 'rgba(24,34,53,.62)', accent: '#2b5cff', accentSoft: 'rgba(43,92,255,.12)', dim: '#a16a08', ghost: 'rgba(31,88,255,.2)' }
-  
+
+  /* State */
   const [notes, setNotes] = useState<NoteRecord[]>([])
-  const [folders, setFolders] = useState<NoteFolder[]>([
-    { id: 'all', name: 'Все заметки', color: '#ffffff' },
-    { id: 'f1', name: 'Личные', color: '#79a7ff' },
-    { id: 'f2', name: 'Работа', color: '#ff79a7' }
-  ])
+  const [folders, setFolders] = useState<FolderRecord[]>([])
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
   const [activeFolderId, setActiveFolderId] = useState<string>('all')
-  const [search, setSearch] = useState('')
-  const [activeId, setActiveId] = useState('')
-  const [stage, setStage] = useState<'library' | 'editor'>('library')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [tool, setTool] = useState<ToolKind>('select')
-  const [selectedId, setSelectedId] = useState('')
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [drawColor, setDrawColor] = useState('#ffd87e')
-  const [strokeWidth, setStrokeWidth] = useState(4)
-  const [imageUrl, setImageUrl] = useState('')
-  const [tableDraft, setTableDraft] = useState('Layer,Role\nText,Readable\nTrace,Overlay\nCAD,Geometry')
-  const [draft, setDraft] = useState({ shape: 'rectangle' as NoteObject['shape'], units: 'mm' as 'mm' | 'px', x: 620, y: 420, w: 220, h: 110, view: 'Side View', dash: false })
-  const [tempStroke, setTempStroke] = useState<Point[]>([])
-  const [lasso, setLasso] = useState<LassoSelection | null>(null)
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, noteId: string } | null>(null)
-  const [scale, setScale] = useState(1)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+  const [folderDraft, setFolderDraft] = useState({ name: '', color: '#3b82f6' })
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ noteId: string; x: number; y: number } | null>(null)
   
-  const deferredSearch = useDeferredValue(search)
+  /* Canvas state */
+  const [tool, setTool] = useState<'select' | 'stroke'>('select')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [scale, setScale] = useState(1)
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const [isPanning, setIsPanning] = useState(false)
+  const [tempStroke, setTempStroke] = useState<HybridPoint[]>([])
+  const [lasso, setLasso] = useState<LassoSelection | null>(null)
+  const [drawColor, setDrawColor] = useState('#86adff')
+  const [strokeWidth, setStrokeWidth] = useState(4)
+  const [shapeColor, setShapeColor] = useState('#86adff')
+  const [shapeFill, setShapeFill] = useState('transparent')
   const stageRef = useRef<HTMLDivElement>(null)
-  const saveRef = useRef<number | null>(null)
-  const drawSessionRef = useRef<Point[]>([])
-  const lassoRef = useRef<LassoSelection | null>(null)
+  const [undoStack, setUndoStack] = useState<HybridObject[][]>([])
+  const [redoStack, setRedoStack] = useState<HybridObject[][]>([])
+  const [dragNoteId, setDragNoteId] = useState<string | null>(null)
+  const [tableParams, setTableParams] = useState({ rows: 3, cols: 3 })
+  const [diagramType, setDiagramType] = useState<'bar' | 'pie' | 'line' | 'donut'>('bar')
+  
+  /* Wiki-link state */
+  const [wikiLink, setWikiLink] = useState<{ blockId: string; position: { x: number; y: number } } | null>(null)
 
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const rows = await tauriInvoke<any[]>('list_notes')
-        const mapped = (Array.isArray(rows) ? rows : []).map((row) => ({
-          id: String(row.id || makeId('note')),
-          title: String(row.title || 'Hybrid note'),
-          topic: String(row.topic || row.subject || 'Engineering canvas'),
-          createdAt: String(row.created_at || row.updated_at || new Date().toISOString()),
-          updatedAt: String(row.updated_at || row.created_at || new Date().toISOString()),
-          doc: parseDoc(String(row.content || ''), String(row.title || 'Hybrid note'), String(row.folder_id || '')),
-        }))
-        setNotes(mapped)
-        if (mapped[0]) setActiveId(mapped[0].id)
-      } catch (error) {
-        toast.error('Failed to load workspace library', { description: error instanceof Error ? error.message : String(error) })
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [])
+  const active = useMemo(() => notes.find(n => n.id === activeNoteId) || null, [notes, activeNoteId])
 
-  useEffect(() => () => {
-    if (saveRef.current) window.clearTimeout(saveRef.current)
-  }, [])
-
-  const filtered = useMemo(() => {
-     let result = [...notes].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
-     if (activeFolderId !== 'all') {
-         result = result.filter(note => note.doc.folderId === activeFolderId)
-     }
-     if (deferredSearch.trim()) {
-         const term = deferredSearch.trim().toLowerCase()
-         result = result.filter((note) => `${note.title} ${note.topic} ${snippet(note.doc)}`.toLowerCase().includes(term))
-     }
-     return result
-  }, [notes, deferredSearch, activeFolderId])
-  const active = notes.find((note) => note.id === activeId) || null
-  const selected = active?.doc.objects.find((object) => object.id === selectedId) || null
-
-  const persist = async (note: NoteRecord) =>
-    tauriInvoke('save_note', { payload: { note: { id: note.id, title: note.title, topic: note.topic, content: serialize(note.doc), updated_at: note.updatedAt, created_at: note.createdAt } } })
-
-  const patchNoteMeta = (title?: string, topic?: string) => {
-    mutate((note) => ({ ...note, title: title ?? note.title, topic: topic ?? note.topic }))
-  }
-
-  const mutate = (producer: (note: NoteRecord) => NoteRecord) => {
+  /* ── Undo/Redo helpers ───────────────────────────────── */
+  const pushUndo = useCallback(() => {
     if (!active) return
-    setNotes((current) =>
-      current.map((note) => {
-        if (note.id !== active.id) return note
-        const next = { ...producer(note), updatedAt: new Date().toISOString() }
-        if (saveRef.current) window.clearTimeout(saveRef.current)
-        saveRef.current = window.setTimeout(() => void persist(next), 240)
-        return next
-      }),
-    )
+    setUndoStack(prev => [...prev.slice(-30), JSON.parse(JSON.stringify(active.doc.objects))])
+    setRedoStack([])
+  }, [active])
+
+  const undo = useCallback(() => {
+    if (undoStack.length === 0 || !active) return
+    const prev = undoStack[undoStack.length - 1]
+    setRedoStack(rs => [...rs, JSON.parse(JSON.stringify(active.doc.objects))])
+    setUndoStack(us => us.slice(0, -1))
+    updateActiveDoc(doc => ({ ...doc, objects: prev }))
+  }, [undoStack, active])
+
+  const redo = useCallback(() => {
+    if (redoStack.length === 0 || !active) return
+    const next = redoStack[redoStack.length - 1]
+    setUndoStack(us => [...us, JSON.parse(JSON.stringify(active.doc.objects))])
+    setRedoStack(rs => rs.slice(0, -1))
+    updateActiveDoc(doc => ({ ...doc, objects: next }))
+  }, [redoStack, active])
+
+  /* ── Data Loading ────────────────────────────────────── */
+  const loadNotes = async () => {
+    try {
+      const raw = await tauriInvoke<any[]>('list_notes')
+      const loaded = (raw || []).map((n: any) => ({
+        id: n.id,
+        title: n.title || '',
+        topic: n.topic || '',
+        folderId: n.folder_id || '',
+        createdAt: n.created_at || n.updated_at || new Date().toISOString(),
+        updatedAt: n.updated_at || new Date().toISOString(),
+        doc: parseDoc(n.content || '', n.title || '', n.folder_id || ''),
+      }))
+      setNotes(loaded)
+    } catch (e) { console.error('loadNotes', e) }
   }
 
-  const patchObject = (objectId: string, producer: (object: NoteObject) => Partial<NoteObject>) => {
-    mutate((note) => ({
-      ...note,
-      doc: {
-        ...note.doc,
-        objects: note.doc.objects.map((object) => (object.id === objectId ? { ...object, ...producer(object) } : object))
+  const loadFolders = async () => {
+    try {
+      const raw = await tauriInvoke<FolderRecord[]>('list_note_folders')
+      setFolders(raw || [])
+    } catch (e) { console.error('loadFolders', e) }
+  }
+
+  useEffect(() => { loadNotes(); loadFolders() }, [])
+
+  /* ── CRUD ─────────────────────────────────────────────── */
+  const saveNote = async (note: NoteRecord) => {
+    const content = serialize(note.doc)
+    await tauriInvoke('save_note', {
+      payload: {
+        note: { id: note.id, title: note.doc.title || note.title, topic: note.topic, content, updated_at: new Date().toISOString() }
       }
-    }))
-  }
-
-  const addObject = (object: NoteObject) => {
-    mutate((note) => ({ ...note, doc: { ...note.doc, objects: [...note.doc.objects, object] } }))
-    setSelectedId(object.id)
-    setSelectedIds([object.id])
-  }
-
-  const selectObject = (objectId: string, additive = false) => {
-    setSelectedId(objectId)
-    setSelectedIds((current) => {
-      if (!additive) return [objectId]
-      return current.includes(objectId) ? current.filter((id) => id !== objectId) : [...current, objectId]
     })
   }
 
-  const enterEditor = (noteId: string) => {
-    setActiveId(noteId)
-    setStage('editor')
-  }
-
-  const exitEditor = () => {
-    setStage('library')
-  }
-
   const createNote = async () => {
-    const stamp = new Date().toISOString()
-    const folder = activeFolderId !== 'all' ? activeFolderId : undefined
-    const note: NoteRecord = { id: makeId('note'), title: `Новая заметка ${notes.length + 1}`, topic: 'Заметка', createdAt: stamp, updatedAt: stamp, doc: createDoc(`Новая заметка ${notes.length + 1}`, folder) }
-    setNotes((current) => [note, ...current])
-    setActiveId(note.id)
-    setStage('editor')
-    await persist(note).catch(() => {})
+    const id = makeId('note')
+    const title = 'Новая заметка'
+    const folderId = activeFolderId !== 'all' && activeFolderId !== 'recent' && activeFolderId !== 'favorites' ? activeFolderId : ''
+    const doc = createDoc(title, folderId)
+    const now = new Date().toISOString()
+    const record: NoteRecord = { id, title, topic: '', folderId, createdAt: now, updatedAt: now, doc }
+    setNotes(prev => [record, ...prev])
+    setActiveNoteId(id)
+    await saveNote(record)
   }
 
-  const removeNote = async () => {
-    const targetId = contextMenu?.noteId || activeId
-    if (!targetId) return
-    await tauriInvoke('delete_note', { payload: { id: targetId } }).catch(() => {})
-    setNotes((current) => current.filter((note) => note.id !== targetId))
-    if (activeId === targetId) {
-        setStage('library')
-        setActiveId('')
+  const deleteNote = async (id: string) => {
+    setNotes(prev => prev.filter(n => n.id !== id))
+    if (activeNoteId === id) setActiveNoteId(null)
+    await tauriInvoke('delete_note', { payload: { id } })
+    toast.success('Заметка удалена')
+  }
+
+  const updateActiveDoc = (updater: (doc: NoteDoc) => NoteDoc) => {
+    if (!activeNoteId) return
+    setNotes(prev => prev.map(n => {
+      if (n.id !== activeNoteId) return n
+      const newDoc = updater(n.doc)
+      const updated: NoteRecord = { ...n, doc: newDoc, title: newDoc.title, updatedAt: new Date().toISOString() }
+      // Debounced save
+      clearTimeout((window as any).__noteSaveTimer)
+      ;(window as any).__noteSaveTimer = setTimeout(() => saveNote(updated), 800)
+      return updated
+    }))
+  }
+
+  /* ── Folder CRUD ──────────────────────────────────────── */
+  const saveFolder = async () => {
+    const id = editingFolderId || makeId('folder')
+    const folder: FolderRecord = { id, name: folderDraft.name, color: folderDraft.color, parent_id: '', sort_order: folders.length }
+    await tauriInvoke('save_note_folder', { payload: { folder } })
+    setFolderDialogOpen(false)
+    setFolderDraft({ name: '', color: '#3b82f6' })
+    setEditingFolderId(null)
+    await loadFolders()
+  }
+
+  const deleteFolder = async (id: string) => {
+    await tauriInvoke('delete_note_folder', { payload: { id } })
+    if (activeFolderId === id) setActiveFolderId('all')
+    await loadFolders()
+    await loadNotes()
+    toast.success('Папка удалена')
+  }
+
+  /* ── Canvas Actions ───────────────────────────────────── */
+  const addCanvasObject = (type: HybridObject['type'], extra?: Partial<HybridObject>) => {
+    pushUndo()
+    const cx = (-panOffset.x + (stageRef.current?.clientWidth || 600) / 2) / scale
+    const cy = (-panOffset.y + (stageRef.current?.clientHeight || 400) / 2) / scale
+    const newObj: HybridObject = {
+      id: makeId('obj'), type, name: type, x: cx - 80 + Math.random() * 40, y: cy - 80 + Math.random() * 40,
+      w: type === 'text' ? 300 : 160, h: type === 'text' ? 100 : 160, rot: 0, z: (active?.doc.objects.length || 0) + 1,
+      locked: false, visible: true, opacity: 1,
+      ...(type === 'cad' ? { shape: 'rectangle' as const, stroke: shapeColor, fill: shapeFill, dash: false, strokeWidth: 3 } : {}),
+      ...(type === 'text' ? { text: '', fontSize: 16 } : {}),
+      ...(type === 'table' ? { cells: Array.from({ length: tableParams.rows }, (_, r) => Array.from({ length: tableParams.cols }, (_, c) => r === 0 ? `Кол. ${c + 1}` : '')) } : {}),
+      ...(type === 'diagram' ? { cells: [['A', '30'], ['B', '50'], ['C', '20'], ['D', '40']], shape: 'rectangle' as const, dash: true, view: diagramType } : {}),
+      ...extra,
+    }
+    updateActiveDoc(doc => ({ ...doc, objects: [...doc.objects, newObj] }))
+  }
+
+  const patchObject = (id: string, patcher: (obj: HybridObject) => Partial<HybridObject>) => {
+    updateActiveDoc(doc => ({
+      ...doc,
+      objects: doc.objects.map(o => o.id === id ? { ...o, ...patcher(o) } : o)
+    }))
+  }
+
+  const selectObject = (id: string, additive?: boolean) => {
+    if (tool === 'stroke') return // disable selection while drawing
+    if (additive) {
+      setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+    } else {
+      setSelectedId(id)
+      setSelectedIds([id])
     }
   }
 
-  const stagePoint = (clientX: number, clientY: number) => {
-    const rect = stageRef.current?.getBoundingClientRect()
-    if (!rect || !active) return null
-    return { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale }
-  }
-
-  const deleteSelectedObjects = () => {
-    if (!active || !selectedIds.length) return
-    mutate((note) => ({
-      ...note,
-      doc: { ...note.doc, objects: note.doc.objects.filter(o => !selectedIds.includes(o.id)) }
-    }))
-    setSelectedId('')
-    setSelectedIds([])
-  }
-
-  const clearCanvas = () => {
-    if (!active) return
-    mutate((note) => ({
-      ...note,
-      doc: { ...note.doc, objects: [] }
-    }))
-    setSelectedId('')
-    setSelectedIds([])
-  }
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedIds.length > 0) {
-        if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return
-        deleteSelectedObjects()
-      }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [active, selectedIds])
-
-  const beginDraw = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!active || tool === 'select') {
-      if (tool === 'select') {
-         setSelectedId('')
-         setSelectedIds([])
-      }
+  const beginDraw = (e: React.PointerEvent) => {
+    // Middle button → pan
+    if (e.button === 1) {
+      e.preventDefault()
+      setIsPanning(true)
+      const startX = e.clientX - panOffset.x
+      const startY = e.clientY - panOffset.y
+      const onMove = (me: PointerEvent) => setPanOffset({ x: me.clientX - startX, y: me.clientY - startY })
+      const onUp = () => { setIsPanning(false); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
       return
     }
-    
-    // Check if clicked element is the stage (empty space)
-    if (event.target !== event.currentTarget) return
+    if (e.button !== 0) return
+    const rect = stageRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const x = (e.clientX - rect.left - panOffset.x) / scale
+    const y = (e.clientY - rect.top - panOffset.y) / scale
 
-    const point = stagePoint(event.clientX, event.clientY)
-    if (!point) return
-    
-    if (tool === 'stroke') {
-      drawSessionRef.current = [point]
-      setTempStroke([point])
-    } else {
-      const next = { active: true, start: point, current: point }
-      lassoRef.current = next
-      setLasso(next)
+    if (tool === 'select') {
+      setSelectedId(null)
       setSelectedIds([])
-      setSelectedId('')
+      setLasso({ active: true, start: { x, y }, current: { x, y } })
+      const onMove = (me: PointerEvent) => {
+        setLasso(prev => prev ? { ...prev, current: { x: (me.clientX - rect.left - panOffset.x) / scale, y: (me.clientY - rect.top - panOffset.y) / scale } } : null)
+      }
+      const onUp = () => {
+        setLasso(prev => {
+          if (prev && active) {
+            const ids = resolveLassoSelection(active.doc.objects, prev)
+            setSelectedIds(ids)
+            if (ids.length === 1) setSelectedId(ids[0])
+          }
+          return null
+        })
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    } else if (tool === 'stroke') {
+      pushUndo()
+      const pts: HybridPoint[] = [{ x, y }]
+      setTempStroke(pts)
+      const onMove = (me: PointerEvent) => {
+        pts.push({ x: (me.clientX - rect.left - panOffset.x) / scale, y: (me.clientY - rect.top - panOffset.y) / scale })
+        setTempStroke([...pts])
+      }
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        if (pts.length > 2) {
+          const xs = pts.map(p => p.x); const ys = pts.map(p => p.y)
+          const minX = Math.min(...xs); const minY = Math.min(...ys)
+          const w = Math.max(20, Math.max(...xs) - minX); const h = Math.max(20, Math.max(...ys) - minY)
+          const normalized = pts.map(p => ({ x: (p.x - minX) / w, y: (p.y - minY) / h }))
+          addCanvasObject('stroke', { x: minX, y: minY, w, h, points: normalized, stroke: drawColor, strokeWidth })
+        }
+        setTempStroke([])
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
     }
   }
 
+  /* ── Keyboard shortcuts ────────────────────────────────── */
   useEffect(() => {
-    const handleMove = (event: PointerEvent) => {
-      const point = stagePoint(event.clientX, event.clientY)
-      if (!point) return
-      if (drawSessionRef.current.length) {
-        const next = [...drawSessionRef.current, point]
-        drawSessionRef.current = next
-        setTempStroke(next)
-      }
-      if (lassoRef.current?.active) {
-        const next = { ...lassoRef.current, current: point }
-        lassoRef.current = next
-        setLasso(next)
-      }
-    }
-    const handleUp = (event: PointerEvent) => {
-      if (active && drawSessionRef.current.length >= 2) {
-        const xs = drawSessionRef.current.map((point) => point.x)
-        const ys = drawSessionRef.current.map((point) => point.y)
-        const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(MIN, Math.max(...xs) - x), h = Math.max(MIN, Math.max(...ys) - y)
-        addObject({ 
-            id: makeId('stroke'), 
-            type: 'stroke', 
-            name: 'Штрих', 
-            x, y, w, h, 
-            rot: 0, 
-            z: active.doc.objects.length + 2, 
-            locked: false, 
-            visible: true, 
-            opacity: 1, 
-            stroke: drawColor, 
-            strokeWidth: strokeWidth,
-            points: drawSessionRef.current.map((p) => ({ x: (p.x - x) / w, y: (p.y - y) / h })) 
-        })
-      } else if (active && lassoRef.current?.active) {
-        const box = getLassoBox(lassoRef.current)
-        const dist = Math.sqrt(Math.pow(lassoRef.current.start.x - lassoRef.current.current.x, 2) + Math.pow(lassoRef.current.start.y - lassoRef.current.current.y, 2))
-        
-        if (dist < 5) {
-          // Click on empty space -> Create object based on tool
-          if (tool === 'text') {
-              addObject({ id: makeId('text'), type: 'text', name: 'Текст', x: lassoRef.current.start.x, y: lassoRef.current.start.y, w: 240, h: 48, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, text: '', fontSize: 16 })
-          } else if (tool === 'cad') {
-              addObject({ id: makeId('cad'), type: 'cad', name: 'Фигура', shape: 'rectangle', fill: '#86adff', stroke: '#2b5cff', x: lassoRef.current.start.x, y: lassoRef.current.start.y, w: 100, h: 100, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1 })
-          } else if (tool === 'diagram') {
-              addObject({ id: makeId('diagram'), type: 'text', name: 'Узел', x: lassoRef.current.start.x, y: lassoRef.current.start.y, w: 150, h: 60, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, text: 'Новый узел\n(диаграмма)', fontSize: 14 })
-          }
-        } else {
-          const ids = resolveLassoSelection(active.doc.objects, lassoRef.current)
-          setSelectedId(ids[0] || '')
-          setSelectedIds(ids)
+    const handler = (e: KeyboardEvent) => {
+      if (!activeNoteId || !active) return
+      // Undo / Redo work everywhere
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'Z' || e.shiftKey && e.key === 'z')) { e.preventDefault(); redo(); return }
+      if (active.doc.mode !== 'canvas') return
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedIds.length > 0 && document.activeElement === document.body) {
+          pushUndo()
+          updateActiveDoc(doc => ({ ...doc, objects: doc.objects.filter(o => !selectedIds.includes(o.id)) }))
+          setSelectedId(null); setSelectedIds([])
         }
       }
-      drawSessionRef.current = []
-      setTempStroke([])
-      lassoRef.current = null
-      setLasso(null)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        if (selectedIds.length > 0 && document.activeElement === document.body) {
+          const copied = active.doc.objects.filter(o => selectedIds.includes(o.id))
+          ;(window as any).__clipboard = JSON.parse(JSON.stringify(copied))
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        // Check clipboard for images first
+        navigator.clipboard.read?.().then(items => {
+          for (const item of items) {
+            const imgType = item.types.find(t => t.startsWith('image/'))
+            if (imgType) {
+              item.getType(imgType).then(blob => {
+                const reader = new FileReader()
+                reader.onload = () => {
+                  pushUndo()
+                  addCanvasObject('image', { src: reader.result as string, w: 300, h: 200 })
+                }
+                reader.readAsDataURL(blob)
+              })
+              return
+            }
+          }
+          // Fallback: paste objects
+          const clipboard = (window as any).__clipboard as HybridObject[] | undefined
+          if (clipboard?.length && document.activeElement === document.body) {
+            pushUndo()
+            const newObjects = clipboard.map(o => ({ ...o, id: makeId('obj'), x: o.x + 20, y: o.y + 20 }))
+            updateActiveDoc(doc => ({ ...doc, objects: [...doc.objects, ...newObjects] }))
+            setSelectedIds(newObjects.map(o => o.id))
+          }
+        }).catch(() => {
+          const clipboard = (window as any).__clipboard as HybridObject[] | undefined
+          if (clipboard?.length && document.activeElement === document.body) {
+            pushUndo()
+            const newObjects = clipboard.map(o => ({ ...o, id: makeId('obj'), x: o.x + 20, y: o.y + 20 }))
+            updateActiveDoc(doc => ({ ...doc, objects: [...doc.objects, ...newObjects] }))
+            setSelectedIds(newObjects.map(o => o.id))
+          }
+        })
+      }
     }
-    window.addEventListener('pointermove', handleMove)
-    window.addEventListener('pointerup', handleUp)
-    return () => { window.removeEventListener('pointermove', handleMove); window.removeEventListener('pointerup', handleUp) }
-  }, [active, drawColor, tool])
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [activeNoteId, active, selectedIds, undo, redo, pushUndo])
 
-  const addTextObject = () => active && addObject({ id: makeId('text'), type: 'text', name: 'Текст', x: 200, y: 200, w: 300, h: 100, rot: 0, z: active.doc.objects.length + 2, locked: false, visible: true, opacity: 1, text: 'Новая заметка', fontSize: 16 })
+  /* ── Export ──────────────────────────────────────────── */
+  const exportMarkdown = (note: NoteRecord) => {
+    const md = `# ${note.title}\n\n${blocksToMarkdown(note.doc.blocks || [])}`
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `${note.title || 'note'}.md`; a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Экспортировано как .md')
+  }
 
+  /* ── Filtered notes ──────────────────────────────────── */
+  const filteredNotes = useMemo(() => {
+    let out = notes
+    if (activeFolderId === 'recent') {
+      out = [...notes].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 20)
+    } else if (activeFolderId !== 'all' && activeFolderId !== 'favorites') {
+      out = notes.filter(n => n.folderId === activeFolderId || n.doc.folderId === activeFolderId)
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      out = out.filter(n => n.title.toLowerCase().includes(q) || snippet(n.doc).toLowerCase().includes(q))
+    }
+    return out
+  }, [notes, activeFolderId, searchQuery])
+
+  /* ── Sidebar colors ──────────────────────────────────── */
+  const sidebarBg = dark ? 'bg-[#0a0c18]/95' : 'bg-[#f8f6f2]/95'
+  const sidebarBorder = dark ? 'border-white/6' : 'border-black/6'
+  const sidebarTextMuted = dark ? 'text-white/50' : 'text-gray-500'
+  const sidebarTextMain = dark ? 'text-white' : 'text-gray-900'
+  const sidebarItemActive = dark ? 'bg-white/8 text-white' : 'bg-black/5 text-gray-900'
+  const sidebarItemHover = dark ? 'hover:bg-white/5 hover:text-white' : 'hover:bg-black/[0.03] hover:text-gray-900'
+  const cardBg = dark ? 'bg-white/[0.03] border-white/6 hover:bg-white/[0.05]' : 'bg-white border-gray-200 hover:shadow-md'
+
+  /* ── Render ──────────────────────────────────────────── */
   return (
-    <AppShell displayName={user?.displayName} email={user?.email} hideSidebar={stage === 'editor'}>
-      <main className={cn("flex-1 h-screen overflow-hidden flex flex-col transition-all", stage === 'editor' ? "p-0" : "p-4 sm:p-6 xl:p-8")}>
-        {stage === 'library' ? (
-          <div className="flex-1 flex flex-col gap-6 max-w-7xl mx-auto w-full h-full overflow-hidden">
-            <header className="flex items-center justify-between">
-              <div>
-                <h1 className="text-4xl font-bold tracking-tight">Заметки</h1>
-                <p className="text-muted-foreground mt-1">Все ваши идеи и чертежи в одном месте.</p>
-              </div>
+    <AppShell displayName={user?.displayName} email={user?.email}>
+      <main className="flex flex-1 min-h-screen overflow-hidden">
+
+        {/* ════════════ SIDEBAR ════════════ */}
+        {!activeNoteId && (
+          <aside className={cn('w-60 shrink-0 flex flex-col border-r backdrop-blur-xl', sidebarBg, sidebarBorder)}>
+            {/* Logo */}
+            <div className="px-4 pt-5 pb-3">
               <div className="flex items-center gap-3">
-                <Button variant="outline" size="icon" onClick={() => setViewMode(v => v === 'grid' ? 'list' : 'grid')} className="rounded-xl">
-                  {viewMode === 'grid' ? <Layers3 className="h-5 w-5" /> : <Grid3x3 className="h-5 w-5" />}
-                </Button>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" className="rounded-xl gap-2 px-4 shadow-sm">
-                        <Plus className="h-4 w-4" /> Папка
-                    </Button>
-                    <Button onClick={() => void createNote()} className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white gap-2 px-5 shadow-lg shadow-blue-500/20">
-                        <Plus className="h-5 w-5" /> Заметка
-                    </Button>
+                <div className={cn('h-9 w-9 rounded-xl flex items-center justify-center', dark ? 'bg-blue-500/15' : 'bg-blue-500/10')}>
+                  <NotebookPen className="h-4.5 w-4.5 text-blue-500" />
+                </div>
+                <div>
+                  <div className={cn('text-sm font-semibold', sidebarTextMain)}>Заметки</div>
+                  <div className={cn('text-[10px] uppercase tracking-[0.2em]', sidebarTextMuted)}>v1.4.1</div>
                 </div>
               </div>
-            </header>
-
-            <div className="flex-1 overflow-y-auto scrollbar-none pb-12 pr-2">
-              <section className="mt-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold px-2">Папки</h2>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                  {folders.map(folder => (
-                    <div 
-                      key={folder.id} 
-                      onClick={() => setActiveFolderId(folder.id)}
-                      className={cn(
-                        "group relative flex flex-col items-center gap-2 p-4 rounded-3xl border transition-all cursor-pointer",
-                        activeFolderId === folder.id 
-                          ? "bg-blue-500/10 border-blue-500/50" 
-                          : "bg-neutral-900/40 border-white/5 hover:bg-neutral-800/60"
-                      )}
-                    >
-                      <div className="w-12 h-12 flex items-center justify-center rounded-2xl bg-white/5" style={{ color: folder.color }}>
-                        <NotebookPen className="h-6 w-6" />
-                      </div>
-                      <span className="text-sm font-medium">{folder.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="mt-12">
-                <h2 className="text-xl font-semibold mb-6 px-2">
-                   {activeFolderId === 'all' ? 'Все заметки' : folders.find(f => f.id === activeFolderId)?.name || 'Заметки'}
-                </h2>
-                <div className={cn(
-                  "grid gap-4",
-                  viewMode === 'grid' ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1"
-                )}>
-                  {filtered.map((note) => (
-                    <div 
-                      key={note.id} 
-                      onClick={() => enterEditor(note.id)}
-                      onContextMenu={(e) => {
-                        e.preventDefault()
-                        setContextMenu({ x: e.clientX, y: e.clientY, noteId: note.id })
-                      }}
-                      className="group relative flex flex-col overflow-hidden rounded-3xl bg-neutral-900/40 border border-white/5 hover:border-blue-500/50 hover:bg-neutral-800/60 hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all cursor-pointer min-h-[140px]"
-                    >
-                      <div className="flex-1 p-5 lg:p-6 flex flex-col">
-                        <div className="flex items-start justify-between">
-                            <h3 className="text-xl lg:text-2xl font-bold leading-tight line-clamp-1">{note.title}</h3>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, noteId: note.id }); removeNote(); }}
-                                className="h-8 w-8 rounded-full bg-red-500/10 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-500/20"
-                            >
-                                <Trash className="h-4 w-4" />
-                            </button>
-                        </div>
-                        <p className="text-[10px] lg:text-xs uppercase tracking-widest text-muted-foreground mt-2 lg:mt-3 opacity-60">
-                          {format(new Date(note.updatedAt), 'd MMM yyyy, HH:mm', { locale: ru })} <span className="mx-2">•</span> {note.topic || 'Заметка'}
-                        </p>
-                        <div className="mt-4 lg:mt-6 text-sm text-neutral-400 line-clamp-2 leading-relaxed preview-text opacity-80 mix-blend-screen group-hover:opacity-100 group-hover:text-neutral-300 transition-colors">
-                          {snippet(note.doc) || 'Нет содержимого'}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
             </div>
-          </div>
-        ) : (
-          <div className="flex-1 h-full w-full relative bg-[#0b0d17] overflow-hidden flex flex-col">
-            {/* Command Bar */}
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-1 p-1 bg-neutral-900/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
-              <Button variant="ghost" size="icon" onClick={exitEditor} className="rounded-xl h-10 w-10 text-neutral-400 hover:text-white">
-                <ChevronLeft className="h-5 w-5" />
-              </Button>
-              <div className="w-px h-6 bg-white/10 mx-1" />
-              {/* Tools */}
-              <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button 
-                      variant={(tool === 'cad' || tool === 'diagram' || tool === 'text') ? 'secondary' : 'ghost'} 
-                      size="sm" 
-                      className={cn("rounded-xl gap-2 px-3 h-10 transition-all text-neutral-400 hover:bg-white/5 data-[state=open]:bg-white/10", (tool === 'cad' || tool === 'diagram' || tool === 'text') && "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/20 max-w-[120px]")}
-                    >
-                      {tool === 'cad' ? <Ruler className="h-4 w-4 shrink-0" /> : tool === 'diagram' ? <Workflow className="h-4 w-4 shrink-0" /> : tool === 'text' ? <TypeIcon className="h-4 w-4 shrink-0" /> : <Plus className="h-4 w-4 shrink-0" />}
-                      <span className="text-xs font-medium truncate shrink">Создать</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="rounded-xl border-white/10 bg-neutral-900/95 backdrop-blur-xl">
-                      <DropdownMenuItem className="gap-2" onClick={() => {setTool('cad'); addObject({ id: makeId('cad'), type: 'cad', name: 'Прямоугольник', shape: 'rectangle', fill: '#86adff', stroke: '#2b5cff', x: window.innerWidth/2, y: window.innerHeight/2, w: 100, h: 100, rot: 0, z: active?.doc.objects.length || 0 + 2, locked: false, visible: true, opacity: 1 })}}>
-                        <Square className="h-4 w-4" />Прямоугольник
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="gap-2" onClick={() => {setTool('cad'); addObject({ id: makeId('cad'), type: 'cad', name: 'Круг', shape: 'circle', fill: '#86adff', stroke: '#2b5cff', x: window.innerWidth/2, y: window.innerHeight/2, w: 100, h: 100, rot: 0, z: active?.doc.objects.length || 0 + 2, locked: false, visible: true, opacity: 1 })}}>
-                        <Circle className="h-4 w-4" />Круг
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="gap-2" onClick={() => {setTool('text'); addObject({ id: makeId('text'), type: 'text', name: 'Текст', x: window.innerWidth/2, y: window.innerHeight/2, w: 240, h: 48, rot: 0, z: active?.doc.objects.length || 0 + 2, locked: false, visible: true, opacity: 1, text: '', fontSize: 16 })}}>
-                        <TypeIcon className="h-4 w-4" />Текст
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="gap-2" onClick={() => {setTool('diagram'); addObject({ id: makeId('diagram'), type: 'text', name: 'Узел', x: window.innerWidth/2, y: window.innerHeight/2, w: 150, h: 60, rot: 0, z: active?.doc.objects.length || 0 + 2, locked: false, visible: true, opacity: 1, text: 'Узел', fontSize: 14 })}}>
-                        <Workflow className="h-4 w-4" />Узел диаграммы
-                      </DropdownMenuItem>
-                  </DropdownMenuContent>
-              </DropdownMenu>
 
+            {/* Search */}
+            <div className="px-3 pb-2">
+              <div className={cn('flex items-center gap-2 rounded-xl px-3 py-2 text-sm', dark ? 'bg-white/5' : 'bg-gray-100')}>
+                <Search className={cn('h-3.5 w-3.5 shrink-0', sidebarTextMuted)} />
+                <input
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Поиск..."
+                  className={cn('w-full bg-transparent outline-none text-sm', dark ? 'text-white placeholder:text-white/30' : 'text-gray-900 placeholder:text-gray-400')}
+                />
+              </div>
+            </div>
+
+            {/* Smart Folders */}
+            <nav className="px-2 py-1 space-y-0.5">
               {[
-                { id: 'select', icon: MousePointer2, label: 'Выделение' },
-                { id: 'stroke', icon: PenTool, label: 'Рисовать' },
+                { id: 'all', label: 'Все заметки', icon: FileText, count: notes.length },
+                { id: 'recent', label: 'Недавние', icon: Clock, count: null },
               ].map(item => (
-                <Button 
+                <button
                   key={item.id}
-                  variant={tool === item.id ? 'secondary' : 'ghost'} 
-                  size="sm" 
-                  onClick={() => setTool((item.id) as ToolKind)}
-                  className={cn("rounded-xl gap-2 px-3 h-10 transition-all", tool === item.id ? "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/20" : "text-neutral-400 hover:bg-white/5")}
+                  onClick={() => setActiveFolderId(item.id)}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
+                    activeFolderId === item.id ? sidebarItemActive : cn(sidebarTextMuted, sidebarItemHover)
+                  )}
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
-                  <span className="text-xs font-medium shrink">{item.label}</span>
-                </Button>
+                  <span className="truncate flex-1 text-left">{item.label}</span>
+                  {item.count != null && <span className={cn('text-xs tabular-nums', sidebarTextMuted)}>{item.count}</span>}
+                </button>
               ))}
-              <div className="w-px h-6 bg-white/10 mx-1" />
-              <Button variant="ghost" size="icon" onClick={() => setScale(s => Math.max(0.1, s - 0.1))} className="rounded-xl h-10 w-10 text-neutral-400 hover:text-white"><ZoomOut className="h-4 w-4" /></Button>
-              <div className="px-2 text-xs font-medium text-neutral-400 w-[4rem] text-center">{Math.round(scale * 100)}%</div>
-              <Button variant="ghost" size="icon" onClick={() => setScale(s => Math.min(5, s + 0.1))} className="rounded-xl h-10 w-10 text-neutral-400 hover:text-white"><ZoomIn className="h-4 w-4" /></Button>
-              <Button variant="ghost" onClick={clearCanvas} className="rounded-xl gap-2 px-3 h-10 text-red-400 hover:bg-red-500/10 hover:text-red-300 ml-1">Очистить</Button>
-            </div>
+            </nav>
 
-            {/* Top Left Title and Topic */}
-            <div className="absolute top-6 left-6 z-[100] pointer-events-auto">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className="flex flex-col items-start gap-1 p-4 rounded-2xl bg-neutral-900/60 backdrop-blur border border-white/5 shadow-xl hover:bg-neutral-800/80 transition-colors text-left max-w-[280px]">
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold shrink-0">Заметка</div>
-                    <div className="text-xl font-bold text-white leading-tight truncate w-full">{active?.title || 'Без названия'}</div>
-                    <div className="text-sm text-neutral-400 truncate w-full">{active?.topic || 'Без темы'}</div>
+            {/* Divider */}
+            <div className={cn('mx-4 my-2 border-t', sidebarBorder)} />
+
+            {/* Folders */}
+            <div className="px-3 mb-1 flex items-center justify-between">
+              <span className={cn('text-[10px] uppercase tracking-[0.2em] font-semibold', sidebarTextMuted)}>Папки</span>
+              <Tip label="Новая папка" side="right">
+                <button
+                  onClick={() => { setEditingFolderId(null); setFolderDraft({ name: '', color: '#3b82f6' }); setFolderDialogOpen(true) }}
+                  className={cn('h-5 w-5 flex items-center justify-center rounded-md transition-colors', sidebarTextMuted, dark ? 'hover:bg-white/10' : 'hover:bg-gray-200')}
+                >
+                  <FolderPlus className="h-3 w-3" />
+                </button>
+              </Tip>
+            </div>
+            <div className="flex-1 overflow-y-auto px-2 space-y-0.5">
+              {folders.map(folder => (
+                <div key={folder.id} className="group relative">
+                  <button
+                    onClick={() => setActiveFolderId(folder.id)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
+                      activeFolderId === folder.id ? sidebarItemActive : cn(sidebarTextMuted, sidebarItemHover)
+                    )}
+                  >
+                    <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: folder.color }} />
+                    <span className="truncate flex-1 text-left">{folder.name}</span>
+                    <span className={cn('text-xs tabular-nums', sidebarTextMuted)}>
+                      {notes.filter(n => n.folderId === folder.id || n.doc.folderId === folder.id).length}
+                    </span>
                   </button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-80 rounded-2xl border-white/10 bg-neutral-900/95 backdrop-blur-xl p-4 shadow-2xl">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                        <label className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">Название</label>
-                        <Input value={active?.title || ''} onChange={(e) => patchNoteMeta(e.target.value, undefined)} className="h-10 bg-black/20 border-white/10 text-base font-medium text-white focus-visible:ring-1 focus-visible:ring-blue-500" placeholder="Название заметки" autoFocus />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">Тема</label>
-                        <Input value={active?.topic || ''} onChange={(e) => patchNoteMeta(undefined, e.target.value)} className="h-10 bg-black/20 border-white/10 text-sm text-neutral-300 focus-visible:ring-1 focus-visible:ring-blue-500" placeholder="Общая тема или тег" />
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className={cn('absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-opacity', dark ? 'hover:bg-white/10 text-white/50' : 'hover:bg-gray-200 text-gray-400')}>
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className={cn('min-w-[160px]', dark ? 'bg-neutral-900 border-white/10' : '')}>
+                      <DropdownMenuItem onClick={() => { setEditingFolderId(folder.id); setFolderDraft({ name: folder.name, color: folder.color }); setFolderDialogOpen(true) }}>
+                        <Pencil className="h-4 w-4 mr-2" /> Переименовать
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="text-red-400" onClick={() => deleteFolder(folder.id)}>
+                        <Trash2 className="h-4 w-4 mr-2" /> Удалить
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ))}
+              {folders.length === 0 && (
+                <div className={cn('px-3 py-6 text-center text-xs', sidebarTextMuted)}>
+                  Нет папок
+                </div>
+              )}
             </div>
 
-            {/* Left Inspector Panel */}
-            {selected && (
-              <div className="absolute left-6 top-1/2 -translate-y-1/2 z-[100] w-64 bg-neutral-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-2xl space-y-6">
-                <div>
-                  <h4 className="text-xs uppercase tracking-widest text-neutral-500 font-bold mb-4">Свойства</h4>
-                  <div className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-neutral-400 uppercase font-bold">Наименование</label>
-                      <Input value={selected.name} onChange={(e) => patchObject(selected.id, o => ({name: e.target.value}))} className="bg-white/5 border-white/10 rounded-xl h-9 text-sm focus:ring-1 focus:ring-blue-500" />
+            {/* New Note Button */}
+            <div className={cn('p-3 border-t', sidebarBorder)}>
+              <Button onClick={createNote} className="w-full rounded-xl h-10 gap-2 text-sm font-medium" size="sm">
+                <Plus className="h-4 w-4" /> Новая заметка
+              </Button>
+            </div>
+          </aside>
+        )}
+
+        {/* ════════════ CONTENT ════════════ */}
+        {!activeNoteId ? (
+          /* Note Grid */
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-5xl mx-auto">
+              {/* Header */}
+              <div className="mb-6">
+                <h1 className={cn('text-2xl font-bold', dark ? 'text-white' : 'text-gray-900')}>
+                  {activeFolderId === 'all' ? 'Все заметки' : activeFolderId === 'recent' ? 'Недавние' : folders.find(f => f.id === activeFolderId)?.name || 'Заметки'}
+                </h1>
+                <p className={cn('mt-1 text-sm', dark ? 'text-white/50' : 'text-gray-500')}>
+                  {filteredNotes.length} {filteredNotes.length === 1 ? 'заметка' : 'заметок'}
+                </p>
+              </div>
+
+              {/* Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {/* Create Card */}
+                <button
+                  onClick={createNote}
+                  className={cn(
+                    'flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-8 transition-all group cursor-pointer',
+                    dark ? 'border-white/10 hover:border-white/20 hover:bg-white/[0.03]' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  )}
+                >
+                  <div className={cn('h-12 w-12 rounded-2xl flex items-center justify-center transition-colors', dark ? 'bg-white/5 group-hover:bg-blue-500/15' : 'bg-gray-100 group-hover:bg-blue-50')}>
+                    <Plus className={cn('h-6 w-6', dark ? 'text-white/40 group-hover:text-blue-400' : 'text-gray-400 group-hover:text-blue-500')} />
+                  </div>
+                  <span className={cn('text-sm font-medium', dark ? 'text-white/40 group-hover:text-white/70' : 'text-gray-400 group-hover:text-gray-600')}>Создать</span>
+                </button>
+
+                {filteredNotes.map(note => (
+                  <button
+                    key={note.id}
+                    onClick={() => setActiveNoteId(note.id)}
+                    onContextMenu={e => { e.preventDefault(); setContextMenu({ noteId: note.id, x: e.clientX, y: e.clientY }) }}
+                    className={cn('text-left rounded-2xl border p-4 transition-all group cursor-pointer', cardBg)}
+                  >
+                    {/* Preview */}
+                    <div className={cn('h-24 rounded-xl mb-3 flex items-center justify-center overflow-hidden', dark ? 'bg-white/[0.03]' : 'bg-gray-50')}>
+                      <div className={cn('text-xs leading-relaxed line-clamp-4 px-3', dark ? 'text-white/30' : 'text-gray-400')}>
+                        {snippet(note.doc)}
+                      </div>
                     </div>
-                    {selected.type === 'stroke' && (
-                      <div className="space-y-3">
-                        <label className="text-[10px] text-neutral-400 uppercase font-bold">Стиль линии</label>
-                        <div className="flex gap-2">
-                          {['#ffd87e', '#ff79a7', '#79a7ff', '#9bffd9', '#ffffff'].map(c => (
-                            <button key={c} onClick={() => patchObject(selected.id, o => ({stroke: c}))} className={cn("w-7 h-7 rounded-full border-2 border-transparent transition-all", selected.stroke === c ? "border-blue-500 scale-110" : "hover:scale-105")} style={{background: c}} />
+                    <div className={cn('text-sm font-semibold truncate', dark ? 'text-white' : 'text-gray-900')}>{note.title || 'Без названия'}</div>
+                    <div className={cn('mt-1 text-xs flex items-center gap-2', dark ? 'text-white/40' : 'text-gray-400')}>
+                      <span>{format(new Date(note.updatedAt), 'd MMM, HH:mm', { locale: ru })}</span>
+                      {note.folderId && (() => {
+                        const f = folders.find(fo => fo.id === note.folderId)
+                        return f ? <span className="flex items-center gap-1"><div className="h-2 w-2 rounded-full" style={{ backgroundColor: f.color }} />{f.name}</span> : null
+                      })()}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : active ? (
+          /* ════════════ EDITOR ════════════ */
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Toolbar */}
+            <div className={cn('flex items-center gap-2 px-4 py-2 border-b shrink-0', dark ? 'bg-[#0b0d17]/90 border-white/6 backdrop-blur-xl' : 'bg-white/90 border-gray-200 backdrop-blur-xl')}>
+              <Tip label="Назад" side="bottom">
+                <Button variant="ghost" size="icon" onClick={() => setActiveNoteId(null)} className="h-8 w-8 rounded-xl">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+              </Tip>
+
+              {/* Title Editable */}
+              <input
+                value={active.doc.title}
+                onChange={e => updateActiveDoc(doc => ({ ...doc, title: e.target.value }))}
+                className={cn('flex-1 bg-transparent outline-none text-sm font-semibold', dark ? 'text-white' : 'text-gray-900')}
+                placeholder="Название заметки"
+              />
+
+              {/* Mode Toggle */}
+              <div className={cn('flex items-center rounded-xl p-0.5 gap-0.5', dark ? 'bg-white/5' : 'bg-gray-100')}>
+                <Tip label="Редактор">
+                  <button
+                    onClick={() => updateActiveDoc(doc => ({ ...doc, mode: 'editor' }))}
+                    className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-all', active.doc.mode === 'editor' ? 'bg-blue-500 text-white shadow-sm' : (dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-900'))}
+                  >
+                    Текст
+                  </button>
+                </Tip>
+                <Tip label="Холст">
+                  <button
+                    onClick={() => updateActiveDoc(doc => ({ ...doc, mode: 'canvas' }))}
+                    className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-all', active.doc.mode === 'canvas' ? 'bg-blue-500 text-white shadow-sm' : (dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-900'))}
+                  >
+                    Холст
+                  </button>
+                </Tip>
+              </div>
+
+              {/* Canvas Tools (conditional) */}
+              {active.doc.mode === 'canvas' && (
+                <>
+                  <div className={cn('w-px h-6', dark ? 'bg-white/10' : 'bg-gray-200')} />
+                  <Tip label="Выделение"><Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" className="h-8 w-8 rounded-xl" onClick={() => setTool('select')}><MousePointer2 className="h-4 w-4" /></Button></Tip>
+
+                  {/* Pencil with color panel */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Tip label="Рисование"><Button variant={tool === 'stroke' ? 'default' : 'ghost'} size="icon" className="h-8 w-8 rounded-xl" onClick={() => setTool('stroke')}><PenTool className="h-4 w-4" /></Button></Tip>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className={cn('w-52 p-3 space-y-3', dark ? 'bg-neutral-900 border-white/10' : '')}>
+                      <div className={cn('text-xs font-semibold', dark ? 'text-white/60' : 'text-gray-500')}>Цвет</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {['#86adff','#ff6b6b','#51cf66','#ffd43b','#cc5de8','#ff922b','#20c997','#ffffff','#868e96'].map(c => (
+                          <button key={c} onClick={() => setDrawColor(c)} className={cn('h-6 w-6 rounded-full border-2 transition-transform', drawColor === c ? 'scale-125 border-blue-500' : 'border-transparent')} style={{ backgroundColor: c }} />
+                        ))}
+                      </div>
+                      <div className={cn('text-xs font-semibold', dark ? 'text-white/60' : 'text-gray-500')}>Толщина: {strokeWidth}px</div>
+                      <input type="range" min="1" max="20" value={strokeWidth} onChange={e => setStrokeWidth(Number(e.target.value))} className="w-full" />
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Shapes dropdown */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Tip label="Фигуры"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl"><Square className="h-4 w-4" /></Button></Tip></DropdownMenuTrigger>
+                    <DropdownMenuContent className={dark ? 'bg-neutral-900 border-white/10' : ''}>
+                      <DropdownMenuItem onClick={() => addCanvasObject('cad', { shape: 'rectangle' })}><Square className="h-4 w-4 mr-2" /> Прямоугольник</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => addCanvasObject('cad', { shape: 'circle' })}><Circle className="h-4 w-4 mr-2" /> Круг</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => addCanvasObject('cad', { shape: 'triangle' })}><Triangle className="h-4 w-4 mr-2" /> Треугольник</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => addCanvasObject('cad', { shape: 'rhombus' })}><Diamond className="h-4 w-4 mr-2" /> Ромб</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => addCanvasObject('cad', { shape: 'polygon' })}><Hexagon className="h-4 w-4 mr-2" /> Полигон</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => addCanvasObject('stroke', { w: 200, h: 4, points: [{x:0,y:0.5},{x:1,y:0.5}], stroke: shapeColor, strokeWidth: 3 })}><Minus className="h-4 w-4 mr-2" /> Линия</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <div className="px-2 py-1.5">
+                        <div className={cn('text-xs font-medium mb-1.5', dark ? 'text-white/50' : 'text-gray-500')}>Цвет контура</div>
+                        <div className="flex flex-wrap gap-1">
+                          {['#86adff','#ff6b6b','#51cf66','#ffd43b','#cc5de8','#ff922b','#ffffff'].map(c => (
+                            <button key={c} onClick={() => setShapeColor(c)} className={cn('h-5 w-5 rounded-full border', shapeColor === c ? 'border-blue-500 scale-110' : 'border-transparent')} style={{ backgroundColor: c }} />
                           ))}
                         </div>
-                        <Input type="range" min="1" max="20" value={selected.strokeWidth || 4} onChange={(e) => patchObject(selected.id, o => ({strokeWidth: Number(e.target.value)}))} />
                       </div>
-                    )}
-                    {selected.type === 'text' && (
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] text-neutral-400 uppercase font-bold">Размер шрифта</label>
-                            <Input type="number" value={Math.round(selected.fontSize || 16)} onChange={(e) => patchObject(selected.id, o => ({fontSize: Number(e.target.value)}))} className="bg-white/5 border-white/10 rounded-xl h-9 text-sm" />
-                        </div>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {/* Text dropdown */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Tip label="Текст"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl"><Type className="h-4 w-4" /></Button></Tip></DropdownMenuTrigger>
+                    <DropdownMenuContent className={dark ? 'bg-neutral-900 border-white/10' : ''}>
+                      <DropdownMenuItem onClick={() => addCanvasObject('text', { fontSize: 24, text: '' })}>Заголовок</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => addCanvasObject('text', { fontSize: 16, text: '' })}>Обычный текст</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => addCanvasObject('text', { fontSize: 12, text: '' })}>Маленький текст</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {/* Table dropdown */}
+                  <Popover>
+                    <PopoverTrigger asChild><Tip label="Таблица"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl"><Table className="h-4 w-4" /></Button></Tip></PopoverTrigger>
+                    <PopoverContent align="start" className={cn('w-48 p-3 space-y-3', dark ? 'bg-neutral-900 border-white/10' : '')}>
+                      <div className={cn('text-xs font-semibold', dark ? 'text-white/60' : 'text-gray-500')}>Параметры таблицы</div>
+                      <div className="flex items-center gap-2">
+                        <span className={cn('text-xs', dark ? 'text-white/50' : 'text-gray-500')}>Строки:</span>
+                        <input type="number" min={1} max={20} value={tableParams.rows} onChange={e => setTableParams(p => ({ ...p, rows: Math.max(1, +e.target.value) }))} className={cn('w-14 rounded px-2 py-1 text-xs', dark ? 'bg-white/10 text-white' : 'bg-gray-100')} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={cn('text-xs', dark ? 'text-white/50' : 'text-gray-500')}>Колонки:</span>
+                        <input type="number" min={1} max={10} value={tableParams.cols} onChange={e => setTableParams(p => ({ ...p, cols: Math.max(1, +e.target.value) }))} className={cn('w-14 rounded px-2 py-1 text-xs', dark ? 'bg-white/10 text-white' : 'bg-gray-100')} />
+                      </div>
+                      <Button size="sm" className="w-full h-8 text-xs rounded-lg" onClick={() => addCanvasObject('table', { w: tableParams.cols * 100, h: tableParams.rows * 36 })}>Вставить</Button>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Diagram dropdown */}
+                  <Popover>
+                    <PopoverTrigger asChild><Tip label="Диаграмма"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl"><BarChart3 className="h-4 w-4" /></Button></Tip></PopoverTrigger>
+                    <PopoverContent align="start" className={cn('w-48 p-3 space-y-2', dark ? 'bg-neutral-900 border-white/10' : '')}>
+                      <div className={cn('text-xs font-semibold', dark ? 'text-white/60' : 'text-gray-500')}>Тип диаграммы</div>
+                      {(['bar', 'pie', 'line', 'donut'] as const).map(t => (
+                        <button key={t} onClick={() => { setDiagramType(t); addCanvasObject('diagram', { w: 250, h: 200, view: t }) }}
+                          className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors', dark ? 'text-white/70 hover:bg-white/5' : 'text-gray-700 hover:bg-gray-50')}
+                        >
+                          {t === 'bar' && <><BarChart3 className="h-4 w-4" /> Столбчатая</>}
+                          {t === 'pie' && <><PieChart className="h-4 w-4" /> Круговая</>}
+                          {t === 'line' && <><Minus className="h-4 w-4" /> Линейная</>}
+                          {t === 'donut' && <><Circle className="h-4 w-4" /> Кольцевая</>}
+                        </button>
+                      ))}
+                    </PopoverContent>
+                  </Popover>
+
+                  <div className={cn('w-px h-6', dark ? 'bg-white/10' : 'bg-gray-200')} />
+                  <Tip label="Отменить (Ctrl+Z)"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" disabled={undoStack.length === 0} onClick={undo}><Undo2 className="h-4 w-4" /></Button></Tip>
+                  <Tip label="Вернуть (Ctrl+Shift+Z)"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" disabled={redoStack.length === 0} onClick={redo}><Redo2 className="h-4 w-4" /></Button></Tip>
+                  <div className={cn('w-px h-6', dark ? 'bg-white/10' : 'bg-gray-200')} />
+                  <Tip label="Отдалить"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" onClick={() => setScale(s => Math.max(0.1, s - 0.1))}><ZoomOut className="h-4 w-4" /></Button></Tip>
+                  <span className={cn('text-xs font-mono tabular-nums w-10 text-center', dark ? 'text-white/50' : 'text-gray-500')}>{Math.round(scale * 100)}%</span>
+                  <Tip label="Приблизить"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" onClick={() => setScale(s => Math.min(5, s + 0.1))}><ZoomIn className="h-4 w-4" /></Button></Tip>
+                </>
+              )}
+
+              {/* Export */}
+              <Tip label="Экспорт .md" side="bottom">
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" onClick={() => exportMarkdown(active)}>
+                  <Download className="h-4 w-4" />
+                </Button>
+              </Tip>
+            </div>
+
+            {/* Editor Body */}
+            {active.doc.mode === 'editor' ? (
+              <div className="flex-1 overflow-y-auto">
+                <div className="max-w-3xl mx-auto px-6 py-4">
+                  <BlockEditor
+                    blocks={active.doc.blocks || []}
+                    onChange={blocks => updateActiveDoc(doc => ({ ...doc, blocks }))}
+                    onWikiLinkTrigger={(query, blockId, pos) => setWikiLink({ blockId, position: pos })}
+                    dark={dark}
+                  />
+                </div>
+              </div>
+            ) : (
+              /* Canvas */
+              <div className="flex-1 relative overflow-hidden">
+                <div
+                  ref={stageRef}
+                  onPointerDown={beginDraw}
+                  onWheel={e => {
+                    e.preventDefault()
+                    const rect = stageRef.current?.getBoundingClientRect()
+                    if (!rect) return
+                    const mx = e.clientX - rect.left
+                    const my = e.clientY - rect.top
+                    const delta = -Math.sign(e.deltaY) * 0.1
+                    const newScale = Math.max(0.1, Math.min(5, scale + delta))
+                    const ratio = newScale / scale
+                    setPanOffset(p => ({
+                      x: mx - ratio * (mx - p.x),
+                      y: my - ratio * (my - p.y),
+                    }))
+                    setScale(newScale)
+                  }}
+                  onContextMenu={e => {
+                    e.preventDefault()
+                    // Right-click paste image
+                    navigator.clipboard.read?.().then(items => {
+                      for (const item of items) {
+                        const imgType = item.types.find(t => t.startsWith('image/'))
+                        if (imgType) {
+                          item.getType(imgType).then(blob => {
+                            const reader = new FileReader()
+                            reader.onload = () => {
+                              pushUndo()
+                              const rect2 = stageRef.current?.getBoundingClientRect()
+                              const x = rect2 ? (e.clientX - rect2.left - panOffset.x) / scale : 100
+                              const y = rect2 ? (e.clientY - rect2.top - panOffset.y) / scale : 100
+                              addCanvasObject('image', { src: reader.result as string, w: 300, h: 200, x, y })
+                            }
+                            reader.readAsDataURL(blob)
+                          })
+                          return
+                        }
+                      }
+                    }).catch(() => {})
+                  }}
+                  className={cn('w-full h-full touch-none', tool === 'stroke' ? 'cursor-crosshair' : isPanning ? 'cursor-grabbing' : 'cursor-default')}
+                  style={{
+                    background: dark
+                      ? `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0)`
+                      : `radial-gradient(circle at 1px 1px, rgba(0,0,0,0.04) 1px, transparent 0)`,
+                    backgroundSize: `${32 * scale}px ${32 * scale}px`,
+                    backgroundPosition: `${panOffset.x}px ${panOffset.y}px`,
+                  }}
+                >
+                  <div style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})`, transformOrigin: '0 0', width: '100%', height: '100%' }}>
+                    {sortObjects(active.doc.objects).filter(o => o.visible).map(object => (
+                      <HybridObjectWrapper
+                        key={object.id}
+                        object={object}
+                        selected={selectedId === object.id}
+                        multiSelected={selectedIds.includes(object.id)}
+                        showDimensions={active.doc.prefs.dims}
+                        scale={1}
+                        accent="#3b82f6"
+                        border={dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}
+                        panel="#171717"
+                        dim="#64748b"
+                        onSelect={selectObject}
+                        onTransform={(id, patch) => patchObject(id, () => patch)}
+                      >
+                        {object.type === 'text' && (
+                          <div className="absolute inset-0 pointer-events-auto">
+                            <textarea
+                              value={object.text}
+                              onChange={e => patchObject(object.id, () => ({ text: e.target.value }))}
+                              className="w-full h-full bg-transparent border-none outline-none resize-none p-2 leading-relaxed"
+                              style={{ fontSize: object.fontSize || 16, color: dark ? '#f4f7ff' : '#182235' }}
+                            />
+                          </div>
+                        )}
+                        {object.type === 'table' && (
+                          <div className={cn('absolute inset-0 pointer-events-auto p-1 rounded border overflow-hidden flex flex-col shadow-xl', dark ? 'bg-[#1c1c1c] border-white/10' : 'bg-white border-gray-200')}>
+                            {object.cells?.map((row, rIdx) => (
+                              <div key={rIdx} className={cn('flex-1 flex border-b last:border-0', dark ? 'border-white/10' : 'border-gray-100')}>
+                                {row.map((cell, cIdx) => (
+                                  <div key={cIdx} className={cn('flex-1 border-r last:border-0', dark ? 'border-white/10' : 'border-gray-100')}>
+                                    <input
+                                      value={cell}
+                                      onChange={e => {
+                                        const newCells = (object.cells || []).map(r => [...r])
+                                        newCells[rIdx][cIdx] = e.target.value
+                                        patchObject(object.id, () => ({ cells: newCells }))
+                                      }}
+                                      className={cn('w-full h-full bg-transparent px-2 outline-none text-sm', dark ? 'text-white' : 'text-gray-900')}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {object.type === 'diagram' && (
+                          <div className="absolute inset-0 pointer-events-none p-4 pb-8 flex items-end justify-center gap-2">
+                            {object.cells?.map((row, i) => {
+                              const val = parseFloat(row[1]) || 0
+                              const max = Math.max(...(object.cells?.map(r => parseFloat(r[1]) || 0) || [1]))
+                              const pct = max > 0 ? (val / max) * 100 : 0
+                              return (
+                                <div key={i} className="flex-1 bg-blue-500 rounded-t-sm relative transition-all" style={{ height: `${pct}%`, minHeight: 4 }}>
+                                  {object.dash && <span className="absolute -top-5 text-[10px] text-white font-bold left-1/2 -translate-x-1/2">{val}</span>}
+                                  <span className={cn('absolute -bottom-6 text-[10px] whitespace-nowrap truncate w-8', dark ? 'text-neutral-400' : 'text-gray-500')}>{row[0]}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                        {object.type === 'image' && <img src={object.src} className="w-full h-full object-contain pointer-events-none" />}
+                      </HybridObjectWrapper>
+                    ))}
+                    {lasso && (() => {
+                      const box = getLassoBox(lasso)
+                      return <div className="absolute border-2 border-blue-500 bg-blue-500/5 pointer-events-none z-[100] rounded-lg" style={{ left: box.left, top: box.top, width: box.right - box.left, height: box.bottom - box.top }} />
+                    })()}
+                    {tempStroke.length > 1 && (
+                      <svg className="absolute top-0 left-0 overflow-visible pointer-events-none z-[90]">
+                        <polyline points={tempStroke.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={drawColor} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     )}
                   </div>
                 </div>
               </div>
             )}
+          </div>
+        ) : null}
 
-            {/* Canvas Stage */}
-            <div 
-              ref={stageRef} 
-              onPointerDown={beginDraw}
-              onWheel={(e) => {
-                  if (e.ctrlKey) {
-                      e.preventDefault()
-                      setScale(s => Math.max(0.1, Math.min(5, s - e.deltaY * 0.005)))
-                  }
-              }}
-              className="flex-1 w-full h-full cursor-crosshair overflow-hidden touch-none"
-              style={{ background: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0)`, backgroundSize: `${32 * scale}px ${32 * scale}px` }}
-            >
-              <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: '100%', height: '100%' }}>
-              {active && sortObjects(active.doc.objects).filter(o => o.visible).map(object => (
-                <HybridObjectWrapper
-                  key={object.id}
-                  object={object}
-                  selected={selectedId === object.id}
-                  multiSelected={selectedIds.includes(object.id)}
-                  showDimensions={active.doc.prefs.dims}
-                  scale={1}
-                  accent="#3b82f6"
-                  border="rgba(255,255,255,0.1)"
-                  panel="#171717"
-                  dim="#64748b"
-                  onSelect={selectObject}
-                  onTransform={(id, patch) => patchObject(id, () => patch)}
-                >
-                  {object.type === 'text' ? (
-                    <div className="absolute inset-0 pointer-events-auto">
-                      <textarea
-                        value={object.text}
-                        onChange={(e) => patchObject(object.id, o => ({text: e.target.value}))}
-                        className="w-full h-full bg-transparent border-none outline-none resize-none p-2 leading-relaxed text-left"
-                        style={{ fontSize: (object.fontSize || 16), color: '#f4f7ff' }}
-                        autoFocus
-                      />
-                    </div>
-                  ) : null}
-                  {object.type === 'image' && <img src={object.src} className="w-full h-full object-contain pointer-events-none" />}
-                </HybridObjectWrapper>
-              ))}
-
-              {lasso && (() => {
-                const box = getLassoBox(lasso);
-                return <div className="absolute border-2 border-blue-500 bg-blue-500/5 pointer-events-none z-[100] rounded-lg" style={{ left: box.left, top: box.top, width: box.right - box.left, height: box.bottom - box.top }} />
-              })()}
-
-              {tempStroke.length > 1 && (
-                <svg className="absolute top-0 left-0 overflow-visible pointer-events-none z-[90]">
-                   <polyline points={tempStroke.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={drawColor} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-              </div>
-            </div>
-
-            {/* Layers Panel Bottom */}
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[100] h-12 flex items-center gap-1 p-1 bg-neutral-900/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
-              <div className="px-4 text-xs font-bold uppercase tracking-widest text-neutral-500">Слои ({active?.doc.objects.length})</div>
-              <div className="w-px h-6 bg-white/10 mx-1" />
-              <div className="flex items-center -space-x-1 pr-2">
-                {active && sortObjects(active.doc.objects).slice(-6).map((o, i) => (
-                  <div 
-                    key={o.id} 
-                    onClick={() => selectObject(o.id)}
-                    className={cn(
-                        "w-8 h-8 rounded-full border-2 border-neutral-900 bg-neutral-800 flex items-center justify-center text-[10px] font-bold cursor-pointer hover:scale-110 transition-transform",
-                        selectedId === o.id && "bg-blue-600 border-blue-400"
-                    )} 
-                    style={{ zIndex: 10 - i }}
-                  >
-                    {o.type[0].toUpperCase()}
-                  </div>
+        {/* ════════════ DIALOGS ════════════ */}
+        <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
+          <DialogContent className={dark ? 'bg-neutral-900 border-white/10' : ''}>
+            <DialogHeader>
+              <DialogTitle>{editingFolderId ? 'Редактировать папку' : 'Новая папка'}</DialogTitle>
+              <DialogDescription>Введите название и выберите цвет</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <Input value={folderDraft.name} onChange={e => setFolderDraft(d => ({ ...d, name: e.target.value }))} placeholder="Название" />
+              <div className="flex items-center gap-2">
+                <span className={cn('text-sm', dark ? 'text-white/60' : 'text-gray-500')}>Цвет:</span>
+                {['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'].map(c => (
+                  <button key={c} onClick={() => setFolderDraft(d => ({ ...d, color: c }))} className={cn('h-7 w-7 rounded-full transition-transform', folderDraft.color === c && 'ring-2 ring-offset-2 ring-blue-500 scale-110', dark && 'ring-offset-neutral-900')} style={{ backgroundColor: c }} />
                 ))}
               </div>
             </div>
-          </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setFolderDialogOpen(false)}>Отмена</Button>
+              <Button disabled={!folderDraft.name.trim()} onClick={saveFolder}>Сохранить</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Wiki Link Popup */}
+        {wikiLink && (
+          <WikiLinkPopup
+            position={wikiLink.position}
+            dark={dark}
+            onSelect={result => {
+              // Insert [[title]] into the active block
+              updateActiveDoc(doc => ({
+                ...doc,
+                blocks: doc.blocks.map(b =>
+                  b.id === wikiLink.blockId
+                    ? { ...b, content: b.content.replace(/\[\[$/, '') + `[[${result.title}]]` }
+                    : b
+                )
+              }))
+              setWikiLink(null)
+            }}
+            onClose={() => setWikiLink(null)}
+          />
         )}
 
-        {/* Global Context Menu */}
+        {/* Context Menu */}
         {contextMenu && (
-          <div 
-            className="fixed z-[1000] min-w-[200px] bg-neutral-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-1.5 overflow-hidden animate-in fade-in zoom-in duration-200" 
+          <div
+            className={cn('fixed z-[1000] min-w-[200px] rounded-2xl border shadow-2xl p-1.5 overflow-hidden animate-in fade-in zoom-in duration-200', dark ? 'bg-neutral-900/95 backdrop-blur-xl border-white/10' : 'bg-white border-gray-200 shadow-xl')}
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onMouseLeave={() => setContextMenu(null)}
           >
             {[
-              { label: 'Редактировать', icon: Pencil, onClick: () => enterEditor(contextMenu.noteId) },
-              { label: 'Переименовать', icon: Type, onClick: () => {} },
-              { label: 'Дублировать', icon: Copy, onClick: () => {} },
-              { label: 'Переместить', icon: MoveRight, onClick: () => {} },
-              { label: 'Удалить', icon: Trash2, onClick: () => { setContextMenu(null); removeNote(); }, danger: true },
+              { label: 'Открыть', icon: Pencil, onClick: () => { setActiveNoteId(contextMenu.noteId); setContextMenu(null) } },
+              { label: 'Экспорт .md', icon: Download, onClick: () => { const n = notes.find(x => x.id === contextMenu.noteId); if (n) exportMarkdown(n); setContextMenu(null) } },
+              { label: 'Удалить', icon: Trash2, onClick: () => { deleteNote(contextMenu.noteId); setContextMenu(null) }, danger: true },
             ].map(item => (
-              <button 
-                key={item.label} 
-                onClick={item.onClick} 
+              <button
+                key={item.label}
+                onClick={item.onClick}
                 className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left rounded-xl",
-                    item.danger ? "text-red-400 hover:bg-red-500/10" : "text-neutral-300 hover:bg-white/5 hover:text-white"
+                  'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left rounded-xl',
+                  (item as any).danger ? 'text-red-400 hover:bg-red-500/10' : (dark ? 'text-neutral-300 hover:bg-white/5 hover:text-white' : 'text-gray-700 hover:bg-gray-50')
                 )}
               >
-                <item.icon className="h-4 w-4" />
-                <span>{item.label}</span>
+                <item.icon className="h-4 w-4" /> {item.label}
               </button>
             ))}
           </div>
