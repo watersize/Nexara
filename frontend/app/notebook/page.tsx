@@ -104,7 +104,7 @@ function buildChartDataUrl(type: ChartType, title: string, rawValues: string) {
     const legend = values
       .map((item, index) => `<g transform="translate(22 ${220 + index * 22})"><rect width="12" height="12" rx="3" fill="${palette[index % palette.length]}" /><text x="18" y="11" fill="#dbe7ff" font-size="12">${item.label}: ${item.value}</text></g>`)
       .join('')
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="320" viewBox="0 0 300 320"><rect width="300" height="320" rx="28" fill="#0b1226" /><text x="22" y="28" fill="#f8fbff" font-size="18" font-weight="700">${title || 'Р”РёР°РіСЂР°РјРјР°'}</text>${slices}<circle cx="150" cy="150" r="40" fill="#0b1226" />${legend}</svg>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="320" viewBox="0 0 300 320"><rect width="300" height="320" rx="28" fill="#0b1226" /><text x="22" y="28" fill="#f8fbff" font-size="18" font-weight="700">${title || 'Диаграмма'}</text>${slices}<circle cx="150" cy="150" r="40" fill="#0b1226" />${legend}</svg>`
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
   }
 
@@ -141,7 +141,7 @@ function buildChartDataUrl(type: ChartType, title: string, rawValues: string) {
       return `<text x="${x}" y="${y}" text-anchor="middle" fill="#dbe7ff" font-size="12">${item.value}</text>`
     })
     .join('')
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" rx="28" fill="#0b1226" /><text x="24" y="30" fill="#f8fbff" font-size="22" font-weight="700">${title || 'Р”РёР°РіСЂР°РјРјР°'}</text><line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#223250" stroke-width="2" /><line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#223250" stroke-width="2" />${type === 'bar' ? bars : `<polyline fill="none" stroke="#5b8cff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" points="${points}" />`}${type === 'line' ? values.map((item, index) => { const x = padding + step * index; const y = height - padding - ((height - padding * 2) * item.value) / max; return `<circle cx="${x}" cy="${y}" r="6" fill="#5b8cff" />` }).join('') : ''}${labels}${valuesText}</svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" rx="28" fill="#0b1226" /><text x="24" y="30" fill="#f8fbff" font-size="22" font-weight="700">${title || 'Диаграмма'}</text><line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#223250" stroke-width="2" /><line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#223250" stroke-width="2" />${type === 'bar' ? bars : `<polyline fill="none" stroke="#5b8cff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" points="${points}" />`}${type === 'line' ? values.map((item, index) => { const x = padding + step * index; const y = height - padding - ((height - padding * 2) * item.value) / max; return `<circle cx="${x}" cy="${y}" r="6" fill="#5b8cff" />` }).join('') : ''}${labels}${valuesText}</svg>`
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }
 
@@ -163,10 +163,10 @@ export default function NotebookPage() {
   const [fontSize, setFontSize] = useState(18)
   const [showDrawingPad, setShowDrawingPad] = useState(false)
   const [builderMode, setBuilderMode] = useState<BuilderMode>(null)
-  const [chartTitle, setChartTitle] = useState('РќРѕРІР°СЏ РґРёР°РіСЂР°РјРјР°')
+  const [chartTitle, setChartTitle] = useState('Новая диаграмма')
   const [chartType, setChartType] = useState<ChartType>('line')
-  const [chartValues, setChartValues] = useState('РЇРЅРІ:12, Р¤РµРІ:18, РњР°СЂ:15, РђРїСЂ:22')
-  const [tableSource, setTableSource] = useState('РџРѕРєР°Р·Р°С‚РµР»СЊ,Р—РЅР°С‡РµРЅРёРµ\nР—Р°РґР°С‡Рё,12\nРЈСЂРѕРєРё,28')
+  const [chartValues, setChartValues] = useState('Янв:12, Фев:18, Мар:15, Апр:22')
+  const [tableSource, setTableSource] = useState('Показатель,Значение\nЗадачи,12\nУроки,28')
   const [selectedImageWidth, setSelectedImageWidth] = useState(80)
   const editorRef = useRef<HTMLDivElement>(null)
   const editorFrameRef = useRef<HTMLDivElement>(null)
@@ -185,7 +185,7 @@ export default function NotebookPage() {
       setNotes(mapped)
       if (!activeNoteId && mapped[0]) setActiveNoteId(mapped[0].id)
     } catch (error) {
-      toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Р·Р°РјРµС‚РєРё', {
+      toast.error('Не удалось загрузить заметки', {
         description: error instanceof Error ? error.message : String(error),
       })
       setNotes([])
@@ -264,7 +264,7 @@ export default function NotebookPage() {
 
   const createNote = async () => {
     const stamp = new Date().toISOString()
-    const note: NoteItem = { id: `note-${Date.now()}`, title: 'РќРѕРІР°СЏ Р·Р°РјРµС‚РєР°', topic: '', content: '<p></p>', updatedAt: stamp, createdAt: stamp }
+    const note: NoteItem = { id: `note-${Date.now()}`, title: 'Новая заметка', topic: '', content: '<p></p>', updatedAt: stamp, createdAt: stamp }
     await persistNote(note)
     await loadNotes()
     setActiveNoteId(note.id)
@@ -278,9 +278,9 @@ export default function NotebookPage() {
       setNotes(nextNotes)
       setActiveNoteId(nextNotes[0]?.id || '')
       if (!nextNotes.length) setIsEditorOpen(false)
-      toast.success('Р—Р°РјРµС‚РєР° СѓРґР°Р»РµРЅР°')
+      toast.success('Заметка удалена')
     } catch (error) {
-      toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ Р·Р°РјРµС‚РєСѓ', {
+      toast.error('Не удалось удалить заметку', {
         description: error instanceof Error ? error.message : String(error),
       })
     }
@@ -313,7 +313,7 @@ export default function NotebookPage() {
       reader.onerror = reject
       reader.readAsDataURL(file)
     })
-    insertHtml(`<figure class="note-image-block my-5 text-center"><img src="${dataUrl}" alt="Р’Р»РѕР¶РµРЅРёРµ" style="width:70%;max-width:100%;margin:0 auto;border-radius:22px;display:block;" /></figure>`)
+    insertHtml(`<figure class="note-image-block my-5 text-center"><img src="${dataUrl}" alt="Вложение" style="width:70%;max-width:100%;margin:0 auto;border-radius:22px;display:block;" /></figure>`)
   }
 
   const prepareDrawingPad = () => {
@@ -369,7 +369,7 @@ export default function NotebookPage() {
   const saveDrawingToNote = () => {
     const canvas = drawingCanvasRef.current
     if (!canvas) return
-    insertHtml(`<figure class="my-5"><img src="${canvas.toDataURL('image/png')}" alt="Р РёСЃСѓРЅРѕРє" style="width:100%;max-width:100%;display:block;border-radius:22px;" /></figure>`)
+    insertHtml(`<figure class="my-5"><img src="${canvas.toDataURL('image/png')}" alt="Рисунок" style="width:100%;max-width:100%;display:block;border-radius:22px;" /></figure>`)
     setShowDrawingPad(false)
   }
 
@@ -377,13 +377,13 @@ export default function NotebookPage() {
   const tablePreview = useMemo(() => buildTableHtml(tableSource), [tableSource])
 
   const insertChartBlock = () => {
-    if (!chartPreview) return toast.error('Р—Р°РїРѕР»РЅРё РґР°РЅРЅС‹Рµ РґР»СЏ РґРёР°РіСЂР°РјРјС‹')
+    if (!chartPreview) return toast.error('Заполни данные для диаграммы')
     insertHtml(`<figure class="my-5"><img src="${chartPreview}" alt="${chartTitle}" style="width:100%;display:block;border-radius:24px;" /></figure>`)
     setBuilderMode(null)
   }
 
   const insertTableBlock = () => {
-    if (!tablePreview) return toast.error('Р—Р°РїРѕР»РЅРё С‚Р°Р±Р»РёС†Сѓ')
+    if (!tablePreview) return toast.error('Заполни таблицу')
     insertHtml(tablePreview)
     setBuilderMode(null)
   }
@@ -417,7 +417,7 @@ export default function NotebookPage() {
       link.download = `${activeNote.title || 'note'}.png`
       link.click()
     } catch (error) {
-      toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєР°С‡Р°С‚СЊ PNG', { description: error instanceof Error ? error.message : String(error) })
+      toast.error('Не удалось скачать PNG', { description: error instanceof Error ? error.message : String(error) })
     }
   }
 
@@ -431,7 +431,7 @@ export default function NotebookPage() {
       pdf.addImage(dataUrl, 'PNG', 24, 24, pageWidth - 48, pageHeight - 48)
       pdf.save(`${activeNote.title || 'note'}.pdf`)
     } catch (error) {
-      toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєР°С‡Р°С‚СЊ PDF', { description: error instanceof Error ? error.message : String(error) })
+      toast.error('Не удалось скачать PDF', { description: error instanceof Error ? error.message : String(error) })
     }
   }
 

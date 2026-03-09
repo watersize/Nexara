@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { AuthModal } from '@/components/auth-modal'
 
@@ -21,7 +21,7 @@ export function useAppState() {
 }
 
 export function TauriProvider({ children }: { children: React.ReactNode }) {
-  const [isReady, setIsReady] = useState(false)
+  const [ready, setReady] = useState(false)
   const [appState, setAppState] = useState<AppState | null>(null)
 
   useEffect(() => {
@@ -37,10 +37,10 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
           defaultWeekNumber: data.default_week_number || 1,
           defaultWeekday: data.default_weekday || 1,
         })
-      } catch (err) {
-        console.error('Bootstrap failed', err)
+      } catch (error) {
+        console.error('Bootstrap failed', error)
       } finally {
-        setIsReady(true)
+        setReady(true)
       }
     }
     void init()
@@ -51,20 +51,20 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
       if (!appState?.authSession) return
       const email = appState.authSession.email || 'guest'
       const dateKey = new Date().toISOString().slice(0, 10)
-      const tasksSessionKey = `veyo_notify_tasks:${email}:${dateKey}`
-      const scheduleSessionKey = `veyo_notify_schedule:${email}:${dateKey}`
+      const tasksKey = `veyo_notify_tasks:${email}:${dateKey}`
+      const scheduleKey = `veyo_notify_schedule:${email}:${dateKey}`
 
       try {
         const tasks = await tauriInvoke<any[]>('list_tasks')
         const dueToday = Array.isArray(tasks)
           ? tasks.filter((task: any) => !task.done && (task.due_date || task.dueDate) === dateKey)
           : []
-        if (appState.settings?.hints_enabled && dueToday.length && !window.sessionStorage.getItem(tasksSessionKey)) {
+        if (appState.settings?.hints_enabled && dueToday.length && !window.sessionStorage.getItem(tasksKey)) {
           await tauriInvoke('notify_status', {
             title: 'veyo.ai',
             body: `На сегодня есть ${dueToday.length} активных задач`,
           })
-          window.sessionStorage.setItem(tasksSessionKey, '1')
+          window.sessionStorage.setItem(tasksKey, '1')
         }
       } catch {}
 
@@ -73,7 +73,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
           weekNumber: appState.defaultWeekNumber,
           weekday: appState.defaultWeekday,
         })
-        if (!Array.isArray(lessons) || !lessons.length || window.sessionStorage.getItem(scheduleSessionKey)) return
+        if (!Array.isArray(lessons) || !lessons.length || window.sessionStorage.getItem(scheduleKey)) return
         const now = new Date()
         const upcoming = lessons.find((lesson) => {
           if (!lesson?.start_time) return false
@@ -88,7 +88,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
             title: 'veyo.ai',
             body: `Скоро ${upcoming.subject} в ${upcoming.start_time}`,
           })
-          window.sessionStorage.setItem(scheduleSessionKey, '1')
+          window.sessionStorage.setItem(scheduleKey, '1')
         }
       } catch {}
     }
@@ -96,7 +96,7 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
     void pushStartupNotifications()
   }, [appState])
 
-  if (!isReady) {
+  if (!ready) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="animate-pulse text-muted-foreground">Загрузка приложения...</div>
@@ -111,3 +111,4 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
     </AppStateContext.Provider>
   )
 }
+

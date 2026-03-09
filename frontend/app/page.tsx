@@ -1,115 +1,105 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { format } from 'date-fns'
+import { ru } from 'date-fns/locale'
 import { NexaraHeader } from '@/components/nexara-header'
 import { WorkspaceCard } from '@/components/workspace-card'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
 
-function createWorkspaces() {
+function workspaces() {
   return [
-    {
-      id: 'schedule',
-      title: 'Расписание',
-      description: 'Управляй уроками, смотри день по неделям и быстро собирай учебную нагрузку.',
-      href: '/schedule',
-      icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4" y="6" width="20" height="18" rx="3" stroke="currentColor" strokeWidth="2" /><path d="M4 11H24" stroke="currentColor" strokeWidth="2" /><path d="M10 6V3M18 6V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><rect x="8" y="15" width="4" height="4" rx="1" fill="currentColor" /><rect x="16" y="15" width="4" height="4" rx="1" fill="currentColor" opacity="0.5" /></svg>,
-      gradient: 'from-primary/15 to-accent/10',
-    },
-    {
-      id: 'notebook',
-      title: 'Блокнот',
-      description: 'Заметки, рисунки, фото, диаграммы и форматирование в одном рабочем пространстве.',
-      href: '/notebook',
-      icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M8 4H20C21.1046 4 22 4.89543 22 6V22C22 23.1046 21.1046 24 20 24H8C6.89543 24 6 23.1046 6 22V6C6 4.89543 6.89543 4 8 4Z" stroke="currentColor" strokeWidth="2" /><path d="M10 10H18M10 14H18M10 18H14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>,
-      gradient: 'from-accent/15 to-primary/10',
-      isNew: true,
-    },
-    {
-      id: 'chat',
-      title: 'AI Чат',
-      description: 'Задавай вопросы по учебникам, расписанию, заметкам и задачам в одном диалоге.',
-      href: '/chat',
-      icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M14 24C19.5228 24 24 19.5228 24 14C24 8.47715 19.5228 4 14 4C8.47715 4 4 8.47715 4 14C4 16.0503 4.60103 17.9615 5.62804 19.5714L4 24L8.42857 22.372C10.0385 23.399 11.9497 24 14 24Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><circle cx="10" cy="14" r="1.5" fill="currentColor" /><circle cx="14" cy="14" r="1.5" fill="currentColor" /><circle cx="18" cy="14" r="1.5" fill="currentColor" /></svg>,
-      gradient: 'from-chart-1/15 to-primary/10',
-    },
-    {
-      id: 'textbooks',
-      title: 'Учебники',
-      description: 'Загружай PDF и TXT, открывай их внутри приложения и задавай по ним вопросы.',
-      href: '/textbooks',
-      icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M14 6C14 6 12 4 8 4C4 4 4 6 4 8V22C4 22 4 20 8 20C12 20 14 22 14 22M14 6C14 6 16 4 20 4C24 4 24 6 24 8V22C24 22 24 20 20 20C16 20 14 22 14 22M14 6V22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>,
-      gradient: 'from-chart-3/15 to-accent/10',
-    },
-    {
-      id: 'planner',
-      title: 'Планировщик',
-      description: 'Дедлайны, учебные дела и ежедневные задачи без лишнего шума.',
-      href: '/planner',
-      icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="14" r="10" stroke="currentColor" strokeWidth="2" /><path d="M14 8V14L18 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><circle cx="14" cy="14" r="2" fill="currentColor" /></svg>,
-      gradient: 'from-chart-4/15 to-chart-1/10',
-    },
-    {
-      id: 'settings',
-      title: 'Настройки',
-      description: 'Тема, уведомления, профиль и управление данными устройства.',
-      href: '/settings',
-      icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="14" r="3" stroke="currentColor" strokeWidth="2" /><path d="M14 4V7M14 21V24M24 14H21M7 14H4M21.07 6.93L18.95 9.05M9.05 18.95L6.93 21.07M21.07 21.07L18.95 18.95M9.05 9.05L6.93 6.93" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>,
-      gradient: 'from-muted to-muted/50',
-    },
+    { id: 'schedule', title: 'Расписание', description: 'Недели, дни и учебная нагрузка.', href: '/schedule', icon: <span className="text-2xl">📅</span>, gradient: 'from-primary/15 to-accent/10' },
+    { id: 'planner', title: 'Планировщик', description: 'Канбан, список и временные слоты.', href: '/planner', icon: <span className="text-2xl">✓</span>, gradient: 'from-accent/15 to-primary/10' },
+    { id: 'chat', title: 'AI чат', description: 'Ответы с контекстом из всего пространства.', href: '/chat', icon: <span className="text-2xl">◎</span>, gradient: 'from-chart-1/15 to-primary/10' },
+    { id: 'textbooks', title: 'Учебники', description: 'PDF, TXT и быстрый просмотр внутри приложения.', href: '/textbooks', icon: <span className="text-2xl">▤</span>, gradient: 'from-chart-3/15 to-accent/10' },
   ]
 }
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return <div className="rounded-xl border border-border/50 bg-card p-4 text-center"><div className="mb-1 text-2xl font-bold text-foreground sm:text-3xl">{value}</div><div className="text-xs text-muted-foreground">{label}</div></div>
+function DashboardWidget({ title, value, hint }: { title: string; value: string | number; hint: string }) {
+  return <div className="rounded-[24px] border border-border/50 bg-card p-5"><div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{title}</div><div className="mt-3 text-3xl font-semibold text-foreground">{value}</div><div className="mt-2 text-sm text-muted-foreground">{hint}</div></div>
 }
 
 export default function HomePage() {
   const appState = useAppState()
-  const workspaces = useMemo(() => createWorkspaces(), [])
-  const [notesCount, setNotesCount] = useState(0)
-  const [tasksCount, setTasksCount] = useState(0)
-  const [lessonsToday, setLessonsToday] = useState(0)
+  const [notes, setNotes] = useState<any[]>([])
+  const [tasks, setTasks] = useState<any[]>([])
+  const [lessons, setLessons] = useState<any[]>([])
+  const brandIcon = '/apple-icon.png'
 
   useEffect(() => {
-    async function loadCounts() {
+    async function load() {
       try {
-        const [notes, tasks, lessons] = await Promise.all([
+        const [notesResult, tasksResult, lessonResult] = await Promise.all([
           tauriInvoke<any[]>('list_notes'),
           tauriInvoke<any[]>('list_tasks'),
-          tauriInvoke<any[]>('get_schedule_for_weekday', { weekNumber: appState?.defaultWeekNumber || 1, weekday: appState?.defaultWeekday || 1 }),
+          tauriInvoke<any[]>('get_schedule_for_weekday', {
+            weekNumber: appState?.defaultWeekNumber || 1,
+            weekday: appState?.defaultWeekday || 1,
+          }),
         ])
-        setNotesCount(Array.isArray(notes) ? notes.length : 0)
-        setTasksCount(Array.isArray(tasks) ? tasks.filter((task) => !task.done).length : 0)
-        setLessonsToday(Array.isArray(lessons) ? lessons.length : 0)
+        setNotes(Array.isArray(notesResult) ? notesResult : [])
+        setTasks(Array.isArray(tasksResult) ? tasksResult : [])
+        setLessons(Array.isArray(lessonResult) ? lessonResult : [])
       } catch {
-        setNotesCount(0)
-        setTasksCount(0)
-        setLessonsToday(0)
+        setNotes([])
+        setTasks([])
+        setLessons([])
       }
     }
-    void loadCounts()
+    void load()
   }, [appState])
 
-  const textbooksCount = appState?.textbooks?.length ?? 0
-  const brandIcon = '/apple-icon.png'
+  const activeTasks = useMemo(() => tasks.filter((task) => !task.done), [tasks])
+  const recentFiles = useMemo(() => (appState?.textbooks || []).slice(0, 3), [appState])
+  const todayLabel = format(new Date(), 'd MMMM yyyy', { locale: ru })
 
   return (
     <div className="min-h-screen bg-background">
       <NexaraHeader />
       <main className="px-4 pb-16 pt-24 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <section className="mb-16 text-center animate-slide-up">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary"><span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />veyo.ai workspace</div>
-            <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/5 p-3 shadow-[0_24px_80px_-36px_rgba(91,140,255,0.45)]"><img src={brandIcon} alt="veyo.ai" className="h-full w-full object-contain" /></div>
-            <h1 className="mb-6 text-4xl font-bold tracking-tight text-foreground text-balance sm:text-5xl lg:text-6xl">Твоё учебное<span className="block bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">пространство</span></h1>
-            <p className="mx-auto max-w-2xl text-lg leading-relaxed text-muted-foreground text-pretty sm:text-xl">Расписание, учебники, AI-чат, задачи и заметки. Всё в одном месте и с общим контекстом.</p>
+        <div className="mx-auto max-w-7xl">
+          <section className="mb-10 rounded-[34px] border border-border/50 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_34%),linear-gradient(180deg,_rgba(11,13,23,0.98),_rgba(6,8,18,1))] p-8 text-center">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary"><span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />veyo.ai workspace</div>
+            <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/5 p-2 shadow-[0_24px_80px_-36px_rgba(91,140,255,0.45)]"><img src={brandIcon} alt="veyo.ai" className="h-full w-full object-cover" /></div>
+            <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">Твоё учебное<span className="block bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">пространство</span></h1>
+            <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-white/60">Локальная база, учебники, задачи, расписание и AI-помощник в одном минималистичном рабочем пространстве.</p>
           </section>
-          <section className="mb-12 grid grid-cols-2 gap-4 sm:grid-cols-4"><StatCard label="Уроков сегодня" value={lessonsToday} /><StatCard label="Учебников" value={textbooksCount} /><StatCard label="Заметок" value={notesCount} /><StatCard label="Активных задач" value={tasksCount} /></section>
-          <section className="mb-16"><div className="mb-6 flex items-center justify-between"><h2 className="text-xl font-semibold text-foreground">Рабочие пространства</h2><span className="text-sm text-muted-foreground">Все основные разделы</span></div><div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6">{workspaces.map((workspace, index) => <WorkspaceCard key={workspace.id} {...workspace} className={`opacity-0 animate-slide-up stagger-${Math.min(index + 1, 4)}`} />)}</div></section>
+
+          <section className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <DashboardWidget title="Уроков сегодня" value={lessons.length} hint={todayLabel} />
+            <DashboardWidget title="Активные задачи" value={activeTasks.length} hint="нужно закрыть" />
+            <DashboardWidget title="Заметки" value={notes.length} hint="локально сохранено" />
+            <DashboardWidget title="Учебники" value={appState?.textbooks?.length || 0} hint="доступно для RAG" />
+          </section>
+
+          <section className="mb-8 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-[28px] border border-border/50 bg-card p-6">
+              <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-semibold text-foreground">Текущие задачи</h2><Link href="/planner" className="text-sm text-primary">Открыть планировщик</Link></div>
+              <div className="space-y-3">
+                {activeTasks.slice(0, 4).map((task) => <div key={task.id || task.task_id} className="rounded-[20px] border border-border/50 bg-background/60 px-4 py-3"><div className="text-base font-semibold text-foreground">{task.title}</div><div className="mt-1 text-sm text-muted-foreground">{task.topic || 'Без темы'}</div></div>)}
+                {!activeTasks.length ? <div className="rounded-[20px] border border-border/50 bg-background/60 px-4 py-6 text-sm text-muted-foreground">Пока нет активных задач</div> : null}
+              </div>
+            </div>
+            <div className="rounded-[28px] border border-border/50 bg-card p-6">
+              <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-semibold text-foreground">Недавние файлы</h2><Link href="/textbooks" className="text-sm text-primary">Открыть библиотеку</Link></div>
+              <div className="space-y-3">
+                {recentFiles.map((file: any) => <div key={file.hash} className="rounded-[20px] border border-border/50 bg-background/60 px-4 py-3"><div className="text-base font-semibold text-foreground">{file.file_name}</div><div className="mt-1 text-sm text-muted-foreground">{file.mime_type}</div></div>)}
+                {!recentFiles.length ? <div className="rounded-[20px] border border-border/50 bg-background/60 px-4 py-6 text-sm text-muted-foreground">Здесь появятся последние учебники</div> : null}
+              </div>
+            </div>
+          </section>
+
+          <section className="mb-16">
+            <div className="mb-6 flex items-center justify-between"><h2 className="text-xl font-semibold text-foreground">Рабочие пространства</h2><span className="text-sm text-muted-foreground">Главные модули системы</span></div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">{workspaces().map((workspace) => <WorkspaceCard key={workspace.id} {...workspace} />)}</div>
+          </section>
         </div>
       </main>
-      <footer className="border-t border-border/50 px-4 py-8 sm:px-6"><div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 text-sm text-muted-foreground sm:flex-row"><span>veyo.ai</span><span>Версия 1.0.0</span></div></footer>
+      <footer className="border-t border-border/50 px-4 py-8 sm:px-6"><div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-sm text-muted-foreground sm:flex-row"><span>veyo.ai</span><span>Версия 1.0.0</span></div></footer>
     </div>
   )
 }
+

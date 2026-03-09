@@ -1,18 +1,15 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { FileText, FileUp, Loader2, Search, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { toast } from 'sonner'
 import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
-import { FileText, FileUp, Loader2, Search, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
-import { toast } from 'sonner'
-import { Document, Page, pdfjs } from 'react-pdf'
-
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
 interface MaterialRecord {
   hash: string
@@ -39,67 +36,55 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary)
 }
 
-function decodePdf(content: string) {
-  const binary = atob(content)
-  const bytes = new Uint8Array(binary.length)
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index)
-  }
-  return bytes
-}
-
 export default function TextbooksPage() {
   const appState = useAppState()
-  const user = appState?.authSession
-    ? { displayName: appState.authSession.display_name, email: appState.authSession.email }
-    : undefined
-  const [textbooks, setTextbooks] = useState<MaterialRecord[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isUploading, setIsUploading] = useState(false)
+  const user = appState?.authSession ? { displayName: appState.authSession.display_name, email: appState.authSession.email } : undefined
+  const [items, setItems] = useState<MaterialRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
   const [preview, setPreview] = useState<TextbookPreview | null>(null)
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false)
-  const [zoom, setZoom] = useState(1)
-  const [numPages, setNumPages] = useState(0)
-  const [viewerWidth, setViewerWidth] = useState(960)
-  const [pdfError, setPdfError] = useState<string | null>(null)
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const pdfViewportRef = useRef<HTMLDivElement>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [zoom, setZoom] = useState(100)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  const loadTextbooks = async () => {
-    setIsLoading(true)
+  const loadItems = async () => {
+    setLoading(true)
     try {
-      setTextbooks(await tauriInvoke<MaterialRecord[]>('list_textbooks_command'))
+      setItems(await tauriInvoke<MaterialRecord[]>('list_textbooks_command'))
     } catch (error) {
-      toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ СѓС‡РµР±РЅРёРєРё', {
+      toast.error('Не удалось загрузить учебники', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
   }
 
   useEffect(() => {
-    void loadTextbooks()
+    void loadItems()
   }, [])
 
   useEffect(() => {
-    if (!preview || preview.kind !== 'pdf') return
-    const updateWidth = () => {
-      const next = pdfViewportRef.current?.clientWidth ?? 960
-      setViewerWidth(Math.max(480, next - 48))
+    if (!preview || preview.kind !== 'pdf') {
+      setPdfUrl(null)
+      return
     }
-    updateWidth()
-    const observer = new ResizeObserver(updateWidth)
-    if (pdfViewportRef.current) observer.observe(pdfViewportRef.current)
-    return () => observer.disconnect()
+    try {
+      const binary = atob(preview.content)
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+      setPdfUrl(url)
+      return () => URL.revokeObjectURL(url)
+    } catch {
+      setPdfUrl(null)
+    }
   }, [preview])
 
-  const upload = async (file: File) => {
-    setIsUploading(true)
+  const uploadBook = async (file: File) => {
+    setUploading(true)
     try {
-      const data = await file.arrayBuffer()
-      const base64 = arrayBufferToBase64(data)
+      const base64 = arrayBufferToBase64(await file.arrayBuffer())
       await tauriInvoke('upload_textbook', {
         payload: {
           file_name: file.name,
@@ -107,241 +92,168 @@ export default function TextbooksPage() {
           mime_type: file.type || 'application/octet-stream',
         },
       })
-      toast.success('РЈС‡РµР±РЅРёРє Р·Р°РіСЂСѓР¶РµРЅ')
-      await loadTextbooks()
+      toast.success('Учебник загружен')
+      await loadItems()
     } catch (error) {
-      toast.error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё', {
+      toast.error('Ошибка загрузки', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
-      setIsUploading(false)
+      setUploading(false)
     }
   }
 
-  const openPreview = async (book: MaterialRecord) => {
-    setIsPreviewLoading(true)
+  const openPreview = async (hash: string) => {
+    setPreviewLoading(true)
     setPreview(null)
-    setNumPages(0)
-    setZoom(1)
-    setPdfError(null)
+    setZoom(100)
     try {
-      const result = await tauriInvoke<TextbookPreview>('get_textbook_preview', {
-        payload: { hash: book.hash },
-      })
-      setPreview(result)
+      setPreview(await tauriInvoke<TextbookPreview>('get_textbook_preview', { payload: { hash } }))
     } catch (error) {
-      toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ С„Р°Р№Р»', {
+      toast.error('Не удалось открыть файл', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
-      setIsPreviewLoading(false)
+      setPreviewLoading(false)
     }
   }
 
-  const closePreview = () => {
-    setPreview(null)
-    setZoom(1)
-    setNumPages(0)
-    setPdfError(null)
-  }
-
-  const pdfBytes = useMemo(() => {
-    if (preview?.kind !== 'pdf' || !preview.content) return null
-    try {
-      return decodePdf(preview.content)
-    } catch {
-      return null
-    }
-  }, [preview])
-
-  useEffect(() => {
-    if (!pdfBytes) {
-      setPdfBlobUrl(null)
-      return
-    }
-    const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
-    const url = URL.createObjectURL(blob)
-    setPdfBlobUrl(url)
-    return () => URL.revokeObjectURL(url)
-  }, [pdfBytes])
+  const emptyState = useMemo(
+    () => (
+      <div className="rounded-[24px] border border-white/7 bg-white/[0.02] px-5 py-10 text-sm text-white/45">
+        Пока нет загруженных файлов.
+      </div>
+    ),
+    [],
+  )
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
       <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-1 flex-col px-5 py-8 sm:px-8">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">РЈС‡РµР±РЅРёРєРё</div>
-            <h1 className="mt-2 text-3xl font-semibold text-white">Р‘РёР±Р»РёРѕС‚РµРєР° С„Р°Р№Р»РѕРІ</h1>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">textbook library</div>
+            <h1 className="mt-2 text-3xl font-semibold text-white">Загруженные материалы</h1>
           </div>
           <div>
             <input
-              ref={fileInputRef}
+              ref={inputRef}
               type="file"
-              accept=".pdf,.doc,.docx,.txt"
+              accept=".pdf,.txt,.doc,.docx"
               className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0]
-                if (file) void upload(file)
-                if (fileInputRef.current) fileInputRef.current.value = ''
+                if (file) void uploadBook(file)
+                if (inputRef.current) inputRef.current.value = ''
               }}
             />
-            <Button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="rounded-2xl">
-              {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
-              Р—Р°РіСЂСѓР·РёС‚СЊ
+            <Button onClick={() => inputRef.current?.click()} disabled={uploading} className="rounded-2xl">
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
+              Загрузить
             </Button>
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {isLoading ? (
-            [0, 1, 2].map((item) => (
-              <div key={item} className="h-48 animate-pulse rounded-[24px] border border-white/7 bg-white/[0.04]" />
-            ))
-          ) : textbooks.length ? (
-            textbooks.map((book) => (
-              <article key={book.hash} className="rounded-[24px] border border-white/7 bg-white/[0.03] p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary">
-                    <FileText className="h-6 w-6" />
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={async () => {
-                      try {
+          {loading ? [0, 1, 2].map((key) => <div key={key} className="h-48 animate-pulse rounded-[24px] border border-white/7 bg-white/[0.04]" />) : null}
+          {!loading && !items.length ? emptyState : null}
+          {!loading
+            ? items.map((book) => (
+                <article key={book.hash} className="rounded-[24px] border border-white/7 bg-white/[0.03] p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                      <FileText className="h-6 w-6" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
                         await tauriInvoke('delete_textbook', { payload: { hash: book.hash } })
-                        toast.success('РЈС‡РµР±РЅРёРє СѓРґР°Р»С‘РЅ')
-                        await loadTextbooks()
-                      } catch (error) {
-                        toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ СѓС‡РµР±РЅРёРє', {
-                          description: error instanceof Error ? error.message : String(error),
-                        })
-                      }
-                    }}
-                    className="rounded-2xl border-white/10 bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white"
+                        await loadItems()
+                      }}
+                      className="text-white/50 hover:text-white"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="mt-4 text-lg font-semibold text-white">{book.file_name}</div>
+                  <div className="mt-2 text-sm text-white/55">{book.mime_type}</div>
+                  <button
+                    type="button"
+                    onClick={() => void openPreview(book.hash)}
+                    className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:text-primary/80"
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                <div className="mt-4 text-lg font-semibold text-white">{book.file_name}</div>
-                <div className="mt-2 text-sm text-white/55">{book.mime_type}</div>
-
-                <button
-                  type="button"
-                  onClick={() => void openPreview(book)}
-                  className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:text-primary/80"
-                >
-                  <Search className="h-4 w-4" />
-                  РџСЂРѕСЃРјРѕС‚СЂРµС‚СЊ
-                </button>
-
-                <div className="mt-5 text-xs text-white/40">
-                  {book.created_at
-                    ? format(new Date(book.created_at), 'd MMMM yyyy, HH:mm', { locale: ru })
-                    : 'Р”Р°С‚Р° РЅРµ СѓРєР°Р·Р°РЅР°'}
-                </div>
-              </article>
-            ))
-          ) : (
-            <div className="rounded-[24px] border border-white/7 bg-white/[0.02] px-5 py-10 text-sm text-white/45">
-              РџРѕРєР° РЅРµС‚ Р·Р°РіСЂСѓР¶РµРЅРЅС‹С… РјР°С‚РµСЂРёР°Р»РѕРІ
-            </div>
-          )}
+                    <Search className="h-4 w-4" />
+                    Просмотреть
+                  </button>
+                  <div className="mt-5 text-xs text-white/40">
+                    {book.created_at ? format(new Date(book.created_at), 'd MMMM yyyy, HH:mm', { locale: ru }) : 'Дата не указана'}
+                  </div>
+                </article>
+              ))
+            : null}
         </div>
 
-        <Dialog open={Boolean(preview) || isPreviewLoading} onOpenChange={(open) => !open && closePreview()}>
+        <Dialog open={Boolean(preview) || previewLoading} onOpenChange={(open) => !open && setPreview(null)}>
           <DialogContent
             showCloseButton={false}
             className="h-[96vh] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-[calc(100vw-2rem)]"
           >
             <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">РџСЂРµРґРїСЂРѕСЃРјРѕС‚СЂ</div>
-                <div className="mt-1 text-xl font-semibold text-white">{preview?.file_name || 'РћС‚РєСЂС‹С‚РёРµ С„Р°Р№Р»Р°...'}</div>
+                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Предпросмотр</div>
+                <div className="mt-1 text-xl font-semibold text-white">{preview?.file_name || 'Открытие файла...'}</div>
               </div>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setZoom((current) => Math.max(0.75, Number((current - 0.15).toFixed(2))))}
-                  className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
-                >
+                <Button variant="outline" size="sm" onClick={() => setZoom((value) => Math.max(60, value - 10))} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white">
                   <ZoomOut className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setZoom((current) => Math.min(2.5, Number((current + 0.15).toFixed(2))))}
-                  className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
-                >
+                <Button variant="outline" size="sm" onClick={() => setZoom((value) => Math.min(200, value + 10))} className="rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white">
                   <ZoomIn className="h-4 w-4" />
                 </Button>
                 <button
                   type="button"
-                  onClick={closePreview}
+                  onClick={() => setPreview(null)}
                   className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
             </div>
-
-            <div ref={pdfViewportRef} className="h-[calc(96vh-80px)] overflow-hidden px-5 py-5">
-              {isPreviewLoading ? (
+            <div className="h-[calc(96vh-80px)] overflow-hidden px-5 py-5">
+              {previewLoading ? (
                 <div className="flex h-full items-center justify-center gap-3 text-white/70">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  РћС‚РєСЂС‹С‚РёРµ С„Р°Р№Р»Р°...
+                  Открытие файла...
                 </div>
-              ) : preview?.kind === 'pdf' ? (
-                <div className="h-full overflow-auto rounded-[24px] border border-white/8 bg-[#edf1f7] px-6 py-6 scrollbar-none">
-                  {pdfBlobUrl ? (
-                    <Document
-                      file={pdfBlobUrl || undefined}
-                      key={pdfBlobUrl || 'pdf-preview'}
-                      loading={<div className="py-8 text-center text-sm text-slate-600">Р—Р°РіСЂСѓР·РєР° PDF...</div>}
-                      error={<div className="py-8 text-center text-sm text-slate-600">РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РѕР±СЂР°Р·РёС‚СЊ PDF.</div>}
-                      onLoadSuccess={({ numPages: total }) => {
-                        setNumPages(total)
-                        setPdfError(null)
-                      }}
-                      onLoadError={(error) => setPdfError(error.message)}
-                    >
-                      <div className="mx-auto flex w-full max-w-full flex-col items-center gap-5">
-                        {Array.from({ length: numPages }, (_, index) => (
-                          <div key={index + 1} className="overflow-hidden rounded-[18px] bg-white shadow-[0_18px_50px_-22px_rgba(15,23,42,0.45)]">
-                            <Page
-                              pageNumber={index + 1}
-                              width={Math.floor(viewerWidth * zoom)}
-                              renderAnnotationLayer={false}
-                              renderTextLayer={false}
-                              loading=""
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </Document>
-                  ) : null}
-                  {!pdfBlobUrl && <div className="py-8 text-center text-sm text-slate-600">Не удалось подготовить PDF для просмотра.</div>}
-                  {pdfError && <div className="py-4 text-center text-sm text-red-500">{pdfError}</div>}
-                  {!pdfError && pdfBlobUrl && !numPages && <div className="py-8 text-center text-sm text-slate-600">Подготовка страниц...</div>}
+              ) : null}
+
+              {!previewLoading && preview?.kind === 'pdf' ? (
+                <div className="h-full overflow-hidden rounded-[24px] border border-white/8 bg-[#eef2f7]">
+                  {pdfUrl ? (
+                    <iframe
+                      title={preview.file_name}
+                      src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0&zoom=${zoom}`}
+                      className="h-full w-full border-0"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-slate-600">Не удалось подготовить PDF.</div>
+                  )}
                 </div>
-              ) : preview?.kind === 'text' ? (
+              ) : null}
+
+              {!previewLoading && preview?.kind === 'text' ? (
                 <div className="h-full overflow-auto rounded-[24px] border border-white/8 bg-white/[0.04] p-6 scrollbar-none">
-                  <pre
-                    className="whitespace-pre-wrap break-words text-white/85"
-                    style={{ fontSize: `${16 * zoom}px`, lineHeight: 1.7 }}
-                  >
+                  <pre className="whitespace-pre-wrap break-words text-white/85" style={{ fontSize: `${zoom / 6 + 10}px`, lineHeight: 1.7 }}>
                     {preview.content}
                   </pre>
                 </div>
-              ) : (
-                <div className="flex h-full items-center justify-center">
-                  <div className="rounded-[24px] border border-white/8 bg-white/[0.04] px-6 py-5 text-white/75">
-                    {preview?.content || 'Р­С‚РѕС‚ С‚РёРї С„Р°Р№Р»Р° РїРѕРєР° РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ РґР»СЏ РїСЂРµРґРїСЂРѕСЃРјРѕС‚СЂР°.'}
-                  </div>
+              ) : null}
+
+              {!previewLoading && preview?.kind === 'unsupported' ? (
+                <div className="flex h-full items-center justify-center rounded-[24px] border border-white/8 bg-white/[0.04] text-white/70">
+                  {preview.content || 'Этот тип файла пока не поддерживается для встроенного предпросмотра.'}
                 </div>
-              )}
+              ) : null}
             </div>
           </DialogContent>
         </Dialog>
@@ -349,7 +261,3 @@ export default function TextbooksPage() {
     </AppShell>
   )
 }
-
-
-
-

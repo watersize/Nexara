@@ -207,6 +207,9 @@ struct UserTask {
     title: String,
     topic: String,
     due_date: String,
+    start_time: String,
+    end_time: String,
+    duration_minutes: i64,
     details: String,
     bucket: String,
     done: bool,
@@ -374,6 +377,9 @@ fn initialize_database(path: &Path) -> Result<(), String> {
             title TEXT NOT NULL DEFAULT '',
             topic TEXT NOT NULL DEFAULT '',
             due_date TEXT NOT NULL DEFAULT '',
+            start_time TEXT NOT NULL DEFAULT '',
+            end_time TEXT NOT NULL DEFAULT '',
+            duration_minutes INTEGER NOT NULL DEFAULT 0,
             details TEXT NOT NULL DEFAULT '',
             bucket TEXT NOT NULL DEFAULT 'today',
             done INTEGER NOT NULL DEFAULT 0,
@@ -478,6 +484,18 @@ fn initialize_database(path: &Path) -> Result<(), String> {
         .map_err(|err| err.to_string())?;
     if !task_columns.iter().any(|column| column == "node_id") {
         conn.execute("ALTER TABLE user_tasks ADD COLUMN node_id TEXT NOT NULL DEFAULT ''", [])
+            .map_err(|err| err.to_string())?;
+    }
+    if !task_columns.iter().any(|column| column == "start_time") {
+        conn.execute("ALTER TABLE user_tasks ADD COLUMN start_time TEXT NOT NULL DEFAULT ''", [])
+            .map_err(|err| err.to_string())?;
+    }
+    if !task_columns.iter().any(|column| column == "end_time") {
+        conn.execute("ALTER TABLE user_tasks ADD COLUMN end_time TEXT NOT NULL DEFAULT ''", [])
+            .map_err(|err| err.to_string())?;
+    }
+    if !task_columns.iter().any(|column| column == "duration_minutes") {
+        conn.execute("ALTER TABLE user_tasks ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 0", [])
             .map_err(|err| err.to_string())?;
     }
     conn.execute("UPDATE user_tasks SET node_id = task_id WHERE TRIM(COALESCE(node_id, '')) = ''", [])
@@ -1765,7 +1783,7 @@ async fn list_tasks_impl(state: &AppState, user_key: String) -> Result<Vec<UserT
     db_run(state.db_path.clone(), move |conn| {
         let mut stmt = conn
             .prepare(
-                "SELECT task_id, title, topic, due_date, details, bucket, done, updated_at
+                "SELECT task_id, title, topic, due_date, start_time, end_time, duration_minutes, details, bucket, done, updated_at
                  FROM user_tasks
                  WHERE user_key = ?1
                  ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC",
@@ -1778,10 +1796,13 @@ async fn list_tasks_impl(state: &AppState, user_key: String) -> Result<Vec<UserT
                     title: row.get(1)?,
                     topic: row.get(2)?,
                     due_date: row.get(3)?,
-                    details: row.get(4)?,
-                    bucket: row.get(5)?,
-                    done: row.get::<_, i64>(6)? == 1,
-                    updated_at: row.get(7)?,
+                    start_time: row.get(4)?,
+                    end_time: row.get(5)?,
+                    duration_minutes: row.get(6)?,
+                    details: row.get(7)?,
+                    bucket: row.get(8)?,
+                    done: row.get::<_, i64>(9)? == 1,
+                    updated_at: row.get(10)?,
                 })
             })
             .map_err(|err| err.to_string())?;
@@ -1806,13 +1827,16 @@ async fn save_task_impl(state: &AppState, user_key: String, task: UserTask) -> R
             )
             .unwrap_or_else(|_| Local::now().to_rfc3339());
         conn.execute(
-            "INSERT INTO user_tasks (user_key, task_id, node_id, title, topic, due_date, details, bucket, done, updated_at, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO user_tasks (user_key, task_id, node_id, title, topic, due_date, start_time, end_time, duration_minutes, details, bucket, done, updated_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(user_key, task_id) DO UPDATE SET
                 node_id = excluded.node_id,
                 title = excluded.title,
                 topic = excluded.topic,
                 due_date = excluded.due_date,
+                start_time = excluded.start_time,
+                end_time = excluded.end_time,
+                duration_minutes = excluded.duration_minutes,
                 details = excluded.details,
                 bucket = excluded.bucket,
                 done = excluded.done,
@@ -1824,6 +1848,9 @@ async fn save_task_impl(state: &AppState, user_key: String, task: UserTask) -> R
                 &task.title,
                 &task.topic,
                 &task.due_date,
+                &task.start_time,
+                &task.end_time,
+                task.duration_minutes,
                 &task.details,
                 &task.bucket,
                 if task.done { 1 } else { 0 },

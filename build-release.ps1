@@ -11,7 +11,7 @@ $agentDist = Join-Path $root 'python_ai\dist\agent.exe'
 $resourceAgent = Join-Path $root 'src-tauri\resources\agent.exe'
 $releaseExe = Join-Path $root 'target\release\schoolmate-proto.exe'
 $portableDir = Join-Path $root 'dist\veyo.ai'
-$installerOut = Join-Path $root 'dist\veyo.ai-Setup-1.0.0.exe'
+$installerOut = Join-Path $root 'dist\veyo.ai-Setup-1.1.0.exe'
 $secretDir = Join-Path $root '.secrets'
 $groqKeyFile = Join-Path $secretDir 'groq_key.txt'
 $portableGroqKey = Join-Path $portableDir 'groq.key'
@@ -96,7 +96,7 @@ set "APPDIR=%LocalAppData%\Programs\veyo.ai"
 if exist "%APPDIR%" rmdir /S /Q "%APPDIR%"
 mkdir "%APPDIR%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%~dp0veyo-ai-portable.zip' -DestinationPath '%LOCALAPPDATA%\Programs\veyo.ai' -Force"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$shell = New-Object -ComObject WScript.Shell; $desktop = [Environment]::GetFolderPath('Desktop'); $programs = [Environment]::GetFolderPath('Programs'); $target = Join-Path $env:LOCALAPPDATA 'Programs\veyo.ai\veyo.ai.exe'; $workdir = Join-Path $env:LOCALAPPDATA 'Programs\veyo.ai'; $desktopShortcut = $shell.CreateShortcut((Join-Path $desktop 'veyo.ai.lnk')); $desktopShortcut.TargetPath = $target; $desktopShortcut.WorkingDirectory = $workdir; $desktopShortcut.IconLocation = $target; $desktopShortcut.Save(); $menuShortcut = $shell.CreateShortcut((Join-Path $programs 'veyo.ai.lnk')); $menuShortcut.TargetPath = $target; $menuShortcut.WorkingDirectory = $workdir; $menuShortcut.IconLocation = $target; $menuShortcut.Save()"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$shell = New-Object -ComObject WScript.Shell; $desktop = [Environment]::GetFolderPath('Desktop'); $programs = [Environment]::GetFolderPath('Programs'); $target = Join-Path $env:LOCALAPPDATA 'Programs\veyo.ai\veyo.ai.exe'; $workdir = Join-Path $env:LOCALAPPDATA 'Programs\veyo.ai'; $icon = Join-Path $env:LOCALAPPDATA 'Programs\veyo.ai\icon.ico'; $desktopShortcut = $shell.CreateShortcut((Join-Path $desktop 'veyo.ai.lnk')); $desktopShortcut.TargetPath = $target; $desktopShortcut.WorkingDirectory = $workdir; $desktopShortcut.IconLocation = $icon; $desktopShortcut.Save(); $menuShortcut = $shell.CreateShortcut((Join-Path $programs 'veyo.ai.lnk')); $menuShortcut.TargetPath = $target; $menuShortcut.WorkingDirectory = $workdir; $menuShortcut.IconLocation = $icon; $menuShortcut.Save()"
 start "" "%APPDIR%\veyo.ai.exe"
 exit /b 0
 '@ | Set-Content $installerScript -Encoding ASCII
@@ -116,9 +116,9 @@ CAB_ResvCodeSigning=0
 RebootMode=N
 InstallPrompt=
 DisplayLicense=
-FinishMessage=veyo.ai v1.0.0 was installed successfully.
+FinishMessage=veyo.ai v1.1.0 was installed successfully.
 TargetName=$installerOut
-FriendlyName=veyo.ai v1.0.0 Setup
+FriendlyName=veyo.ai v1.1.0 Setup
 AppLaunched=install.cmd
 PostInstallCmd=<None>
 AdminQuietInstCmd=install.cmd

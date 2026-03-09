@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "veyo.ai",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "ai.veyo.desktop",
   "build": {
     "beforeDevCommand": "powershell -NoProfile -Command \"Set-Location ..\\frontend; npm run dev\"",
@@ -37,8 +37,8 @@
     ],
     "publisher": "veyo.ai",
     "category": "Education",
-    "shortDescription": "AI-powered educational assistant",
-    "longDescription": "veyo.ai is a modern educational workspace with scheduling, notes, AI chat, and textbook tools.",
+    "shortDescription": "Desktop-first educational workspace",
+    "longDescription": "veyo.ai is a modern educational workspace with planning, notes, AI chat, graphs, and textbook tools.",
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
