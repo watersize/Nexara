@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import ReactMarkdown from 'react-markdown'
 import { Check, Clock3, Columns2, ListTodo, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { AppShell } from '@/components/app-shell'
@@ -50,7 +51,7 @@ function createEmptyDraft(): TaskDraft {
   return {
     title: '',
     topic: '',
-    dueDate: format(new Date(), 'yyyy-MM-dd'),
+    dueDate: '',
     startTime: '',
     endTime: '',
     durationMinutes: '',
@@ -458,7 +459,12 @@ export default function PlannerPage() {
                   <Input value={draft.topic} onChange={(e) => setDraft((c) => ({ ...c, topic: e.target.value }))} className="h-12 rounded-2xl border-white/10 bg-black/20 text-white" />
                 </Field>
                 <Field label="Дата">
-                  <Input type="date" value={draft.dueDate} onChange={(e) => setDraft((c) => ({ ...c, dueDate: e.target.value }))} className="h-12 rounded-2xl border-white/10 bg-black/20 text-white" />
+                  <div className="flex gap-2">
+                    <Input type="date" value={draft.dueDate} onChange={(e) => setDraft((c) => ({ ...c, dueDate: e.target.value }))} className="h-12 rounded-2xl border-white/10 bg-black/20 text-white" />
+                    <Button type="button" variant="outline" onClick={() => setDraft((c) => ({ ...c, dueDate: '' }))} className="h-12 rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white">
+                      Без даты
+                    </Button>
+                  </div>
                 </Field>
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
@@ -491,7 +497,7 @@ export default function PlannerPage() {
                 {draft.topic ? <span className="rounded-full border border-white/10 px-3 py-1 text-sm text-white/70">{draft.topic}</span> : null}
               </div>
               <div className="mt-5 rounded-[22px] border border-white/8 bg-black/15 p-4 text-sm leading-7 text-white/60">
-                {draft.details || 'Описание и ссылки задачи появятся здесь.'}
+                {draft.details ? <ReactMarkdown>{draft.details}</ReactMarkdown> : 'Описание и ссылки задачи появятся здесь.'}
               </div>
             </div>
           </div>
