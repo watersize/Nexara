@@ -6,17 +6,12 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'veyo.ai',
-  description: 'Учебное пространство с расписанием, учебниками, AI-чатом, заметками и планировщиком.',
+  description: 'Professional workspace for knowledge notes, sessions, documentation, AI collaboration, and CAD-lite visual drafting.',
   generator: 'veyo.ai',
   icons: {
     icon: [
-      {
-        url: '/apple-icon.png',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
+      { url: '/apple-icon.png' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
     ],
     apple: '/apple-icon.png',
   },
@@ -31,13 +26,9 @@ export const viewport: Viewport = {
   initialScale: 1,
 }
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ru" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <TauriProvider>

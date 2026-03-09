@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod professional_schema;
+
 use std::path::{Path, PathBuf};
 use std::collections::{BTreeSet, HashMap};
 
@@ -13,6 +15,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
+use professional_schema::PROFESSIONAL_SCHEMA_SQL;
 
 const DEFAULT_SUPABASE_URL: &str = "https://qotqycihhexoflxzavqj.supabase.co";
 const DEFAULT_SUPABASE_KEY: &str = "sb_publishable_kG0Pz1veUgqLwzmOh38coA_9Q995YKF";
@@ -499,6 +502,8 @@ fn initialize_database(path: &Path) -> Result<(), String> {
             .map_err(|err| err.to_string())?;
     }
     conn.execute("UPDATE user_tasks SET node_id = task_id WHERE TRIM(COALESCE(node_id, '')) = ''", [])
+        .map_err(|err| err.to_string())?;
+    conn.execute_batch(PROFESSIONAL_SCHEMA_SQL)
         .map_err(|err| err.to_string())?;
     Ok(())
 }
