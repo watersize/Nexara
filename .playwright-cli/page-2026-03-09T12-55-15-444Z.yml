@@ -1,0 +1,95 @@
+- generic:
+  - alert
+  - generic:
+    - generic:
+      - complementary:
+        - generic:
+          - generic:
+            - link:
+              - /url: /
+              - generic:
+                - img
+              - generic:
+                - generic: veyo.ai
+                - generic: study workspace
+          - navigation:
+            - link:
+              - /url: /
+              - generic:
+                - img
+              - generic: Главная
+            - link:
+              - /url: /notebook
+              - generic:
+                - img
+              - generic: Блокнот
+            - link:
+              - /url: /planner
+              - generic:
+                - img
+              - generic: Планировщик
+            - link:
+              - /url: /schedule
+              - generic:
+                - img
+              - generic: Расписание
+            - link:
+              - /url: /chat
+              - generic:
+                - img
+              - generic: AI Чат
+            - link:
+              - /url: /textbooks
+              - generic:
+                - img
+              - generic: Учебники
+          - generic:
+            - link:
+              - /url: /settings
+              - img
+              - text: Настройки
+            - button:
+              - img
+              - text: Тема
+      - generic:
+        - main:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - img
+                - generic:
+                  - generic: veyo.ai
+                  - generic: Hybrid workspace
+              - generic:
+                - generic:
+                  - img
+                  - textbox:
+                    - /placeholder: Search notes, sessions and objects
+                - button:
+                  - img
+                  - text: New note
+            - generic:
+              - generic:
+                - button:
+                  - img
+              - generic:
+                - complementary:
+                  - generic:
+                    - generic:
+                      - generic: Note Library
+                      - generic: Knowledge Notes
+                    - generic: "0"
+              - generic: Select a workspace note from the library.
+  - region "Notifications alt+T"
+  - dialog "Вход в учебное пространство" [ref=e2]:
+    - heading "Вход в учебное пространство" [level=2] [ref=e4]
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]: Email
+        - textbox "Email" [active] [ref=e8]
+      - generic [ref=e9]:
+        - generic [ref=e10]: Пароль
+        - textbox "Пароль" [ref=e11]
+      - button "Войти" [ref=e12]
+      - button "Нет аккаунта? Зарегистрироваться" [ref=e14]

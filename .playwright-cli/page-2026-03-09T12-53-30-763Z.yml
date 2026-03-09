@@ -1,0 +1,81 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - img [ref=e6]
+      - generic [ref=e10]: veyo.ai
+    - navigation [ref=e11]:
+      - link "Главная" [ref=e12] [cursor=pointer]:
+        - /url: index.html
+        - img [ref=e13]
+        - generic [ref=e16]: Главная
+      - link "Блокнот" [ref=e17] [cursor=pointer]:
+        - /url: notebook.html
+        - img [ref=e18]
+        - generic [ref=e21]: Блокнот
+      - link "Планировщик" [ref=e22] [cursor=pointer]:
+        - /url: planner.html
+        - img [ref=e23]
+        - generic [ref=e26]: Планировщик
+      - link "Расписание" [ref=e27] [cursor=pointer]:
+        - /url: schedule.html
+        - img [ref=e28]
+        - generic [ref=e31]: Расписание
+      - link "AI Чат" [ref=e32] [cursor=pointer]:
+        - /url: chat.html
+        - img [ref=e33]
+        - generic [ref=e35]: AI Чат
+      - link "Учебники" [ref=e36] [cursor=pointer]:
+        - /url: textbooks.html
+        - img [ref=e37]
+        - generic [ref=e40]: Учебники
+    - generic [ref=e41]:
+      - link "Настройки" [ref=e42] [cursor=pointer]:
+        - /url: settings.html
+        - img [ref=e43]
+        - generic [ref=e46]: Настройки
+      - button "Тема" [ref=e47] [cursor=pointer]:
+        - img [ref=e48]
+        - generic [ref=e51]: Тема
+  - generic [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - generic [ref=e56]: Заметки
+        - button "Новая заметка" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+      - searchbox "Поиск заметок..." [ref=e61]
+      - generic [ref=e62]:
+        - 'button "Формулы по физике Второй закон Ньютона: F = ma Закон сохранения энергии: E = mc² Скорость света: c = 3×10⁸ Физика 30 мин. назад" [ref=e63] [cursor=pointer]':
+          - generic [ref=e64]: Формулы по физике
+          - generic [ref=e65]: "Второй закон Ньютона: F = ma Закон сохранения энергии: E = mc² Скорость света: c = 3×10⁸"
+          - generic [ref=e66]:
+            - generic [ref=e67]: Физика
+            - generic [ref=e68]: 30 мин. назад
+        - 'button "Конспект по истории Первая мировая война (1914-1918) Причины: - борьба за колонии - гонка вооружений История 2 ч. назад" [ref=e69] [cursor=pointer]':
+          - generic [ref=e70]: Конспект по истории
+          - generic [ref=e71]: "Первая мировая война (1914-1918) Причины: - борьба за колонии - гонка вооружений"
+          - generic [ref=e72]:
+            - generic [ref=e73]: История
+            - generic [ref=e74]: 2 ч. назад
+    - generic [ref=e75]:
+      - generic [ref=e76]:
+        - button "B" [ref=e77] [cursor=pointer]:
+          - generic [ref=e78]: B
+        - button "I" [ref=e79] [cursor=pointer]:
+          - generic [ref=e80]: I
+        - button "U" [ref=e81] [cursor=pointer]:
+          - generic [ref=e82]: U
+        - button "H2" [ref=e84] [cursor=pointer]
+        - button "H3" [ref=e85] [cursor=pointer]
+        - button "Список" [ref=e87] [cursor=pointer]:
+          - img [ref=e88]
+        - button "Нумерованный список" [ref=e90] [cursor=pointer]:
+          - img [ref=e91]
+        - button "Математика" [ref=e94] [cursor=pointer]
+        - button "Физика" [ref=e95] [cursor=pointer]
+        - button "Удалить заметку" [ref=e97] [cursor=pointer]:
+          - img [ref=e98]
+      - textbox "Название заметки..." [ref=e100]: Формулы по физике
+      - textbox "Начни писать..." [ref=e101]: "Второй закон Ньютона: F = ma Закон сохранения энергии: E = mc² Скорость света: c = 3×10⁸ м/с Закон Ома: I = U/R"
+      - generic [ref=e102]:
+        - generic [ref=e103]: 23 слов
+        - generic [ref=e104]: Сохранено

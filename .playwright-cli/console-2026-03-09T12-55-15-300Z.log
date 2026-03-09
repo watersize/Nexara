@@ -1,0 +1,9 @@
+[      81ms] [WARNING] [Tauri Mock] Invoking command: bootstrap_app undefined @ http://127.0.0.1:3001/_next/static/chunks/83cc94ce7997673e.js:0
+[      93ms] [WARNING] [Tauri Mock] Invoking command: list_notes undefined @ http://127.0.0.1:3001/_next/static/chunks/83cc94ce7997673e.js:0
+[     109ms] [WARNING] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}. @ http://127.0.0.1:3001/_next/static/chunks/83cc94ce7997673e.js:4
+[     160ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:3001/settings/__next.settings.__PAGE__.txt?_rsc=uu6sw:0
+[     163ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:3001/textbooks/__next.textbooks.__PAGE__.txt?_rsc=nu27c:0
+[     164ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:3001/chat/__next.chat.__PAGE__.txt?_rsc=cm0c5:0
+[     168ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:3001/schedule/__next.schedule.__PAGE__.txt?_rsc=1bxju:0
+[     170ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:3001/planner/__next.planner.__PAGE__.txt?_rsc=408gv:0
+[     174ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:3001/notebook/__next.notebook.__PAGE__.txt?_rsc=q4wyd:0
