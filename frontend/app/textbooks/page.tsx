@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
@@ -62,6 +62,7 @@ export default function TextbooksPage() {
   const [numPages, setNumPages] = useState(0)
   const [viewerWidth, setViewerWidth] = useState(960)
   const [pdfError, setPdfError] = useState<string | null>(null)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pdfViewportRef = useRef<HTMLDivElement>(null)
 
@@ -70,7 +71,7 @@ export default function TextbooksPage() {
     try {
       setTextbooks(await tauriInvoke<MaterialRecord[]>('list_textbooks_command'))
     } catch (error) {
-      toast.error('Не удалось загрузить учебники', {
+      toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ СѓС‡РµР±РЅРёРєРё', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
@@ -106,10 +107,10 @@ export default function TextbooksPage() {
           mime_type: file.type || 'application/octet-stream',
         },
       })
-      toast.success('Учебник загружен')
+      toast.success('РЈС‡РµР±РЅРёРє Р·Р°РіСЂСѓР¶РµРЅ')
       await loadTextbooks()
     } catch (error) {
-      toast.error('Ошибка загрузки', {
+      toast.error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
@@ -129,7 +130,7 @@ export default function TextbooksPage() {
       })
       setPreview(result)
     } catch (error) {
-      toast.error('Не удалось открыть файл', {
+      toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ С„Р°Р№Р»', {
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
@@ -153,13 +154,24 @@ export default function TextbooksPage() {
     }
   }, [preview])
 
+  useEffect(() => {
+    if (!pdfBytes) {
+      setPdfBlobUrl(null)
+      return
+    }
+    const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    setPdfBlobUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [pdfBytes])
+
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
       <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-1 flex-col px-5 py-8 sm:px-8">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Учебники</div>
-            <h1 className="mt-2 text-3xl font-semibold text-white">Библиотека файлов</h1>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">РЈС‡РµР±РЅРёРєРё</div>
+            <h1 className="mt-2 text-3xl font-semibold text-white">Р‘РёР±Р»РёРѕС‚РµРєР° С„Р°Р№Р»РѕРІ</h1>
           </div>
           <div>
             <input
@@ -175,7 +187,7 @@ export default function TextbooksPage() {
             />
             <Button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="rounded-2xl">
               {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
-              Загрузить
+              Р—Р°РіСЂСѓР·РёС‚СЊ
             </Button>
           </div>
         </div>
@@ -198,10 +210,10 @@ export default function TextbooksPage() {
                     onClick={async () => {
                       try {
                         await tauriInvoke('delete_textbook', { payload: { hash: book.hash } })
-                        toast.success('Учебник удалён')
+                        toast.success('РЈС‡РµР±РЅРёРє СѓРґР°Р»С‘РЅ')
                         await loadTextbooks()
                       } catch (error) {
-                        toast.error('Не удалось удалить учебник', {
+                        toast.error('РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ СѓС‡РµР±РЅРёРє', {
                           description: error instanceof Error ? error.message : String(error),
                         })
                       }
@@ -221,19 +233,19 @@ export default function TextbooksPage() {
                   className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:text-primary/80"
                 >
                   <Search className="h-4 w-4" />
-                  Просмотреть
+                  РџСЂРѕСЃРјРѕС‚СЂРµС‚СЊ
                 </button>
 
                 <div className="mt-5 text-xs text-white/40">
                   {book.created_at
                     ? format(new Date(book.created_at), 'd MMMM yyyy, HH:mm', { locale: ru })
-                    : 'Дата не указана'}
+                    : 'Р”Р°С‚Р° РЅРµ СѓРєР°Р·Р°РЅР°'}
                 </div>
               </article>
             ))
           ) : (
             <div className="rounded-[24px] border border-white/7 bg-white/[0.02] px-5 py-10 text-sm text-white/45">
-              Пока нет загруженных материалов
+              РџРѕРєР° РЅРµС‚ Р·Р°РіСЂСѓР¶РµРЅРЅС‹С… РјР°С‚РµСЂРёР°Р»РѕРІ
             </div>
           )}
         </div>
@@ -245,8 +257,8 @@ export default function TextbooksPage() {
           >
             <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Предпросмотр</div>
-                <div className="mt-1 text-xl font-semibold text-white">{preview?.file_name || 'Открытие файла...'}</div>
+                <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">РџСЂРµРґРїСЂРѕСЃРјРѕС‚СЂ</div>
+                <div className="mt-1 text-xl font-semibold text-white">{preview?.file_name || 'РћС‚РєСЂС‹С‚РёРµ С„Р°Р№Р»Р°...'}</div>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -279,15 +291,16 @@ export default function TextbooksPage() {
               {isPreviewLoading ? (
                 <div className="flex h-full items-center justify-center gap-3 text-white/70">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  Открытие файла...
+                  РћС‚РєСЂС‹С‚РёРµ С„Р°Р№Р»Р°...
                 </div>
               ) : preview?.kind === 'pdf' ? (
                 <div className="h-full overflow-auto rounded-[24px] border border-white/8 bg-[#edf1f7] px-6 py-6 scrollbar-none">
-                  {pdfBytes ? (
+                  {pdfBlobUrl ? (
                     <Document
-                      file={{ data: pdfBytes }}
-                      loading={<div className="py-8 text-center text-sm text-slate-600">Загрузка PDF...</div>}
-                      error={<div className="py-8 text-center text-sm text-slate-600">Не удалось отобразить PDF.</div>}
+                      file={pdfBlobUrl || undefined}
+                      key={pdfBlobUrl || 'pdf-preview'}
+                      loading={<div className="py-8 text-center text-sm text-slate-600">Р—Р°РіСЂСѓР·РєР° PDF...</div>}
+                      error={<div className="py-8 text-center text-sm text-slate-600">РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РѕР±СЂР°Р·РёС‚СЊ PDF.</div>}
                       onLoadSuccess={({ numPages: total }) => {
                         setNumPages(total)
                         setPdfError(null)
@@ -309,9 +322,9 @@ export default function TextbooksPage() {
                       </div>
                     </Document>
                   ) : null}
-                  {!pdfBytes && <div className="py-8 text-center text-sm text-slate-600">Не удалось подготовить PDF для просмотра.</div>}
+                  {!pdfBlobUrl && <div className="py-8 text-center text-sm text-slate-600">Не удалось подготовить PDF для просмотра.</div>}
                   {pdfError && <div className="py-4 text-center text-sm text-red-500">{pdfError}</div>}
-                  {!pdfError && pdfBytes && !numPages && <div className="py-8 text-center text-sm text-slate-600">Подготовка страниц...</div>}
+                  {!pdfError && pdfBlobUrl && !numPages && <div className="py-8 text-center text-sm text-slate-600">Подготовка страниц...</div>}
                 </div>
               ) : preview?.kind === 'text' ? (
                 <div className="h-full overflow-auto rounded-[24px] border border-white/8 bg-white/[0.04] p-6 scrollbar-none">
@@ -325,7 +338,7 @@ export default function TextbooksPage() {
               ) : (
                 <div className="flex h-full items-center justify-center">
                   <div className="rounded-[24px] border border-white/8 bg-white/[0.04] px-6 py-5 text-white/75">
-                    {preview?.content || 'Этот тип файла пока не поддерживается для предпросмотра.'}
+                    {preview?.content || 'Р­С‚РѕС‚ С‚РёРї С„Р°Р№Р»Р° РїРѕРєР° РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ РґР»СЏ РїСЂРµРґРїСЂРѕСЃРјРѕС‚СЂР°.'}
                   </div>
                 </div>
               )}
@@ -336,3 +349,7 @@ export default function TextbooksPage() {
     </AppShell>
   )
 }
+
+
+
+
