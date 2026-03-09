@@ -1,5 +1,6 @@
-﻿'use client'
+'use client'
 
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -7,7 +8,7 @@ import { useTheme } from 'next-themes'
 import { tauriInvoke } from '@/lib/tauri-bridge'
 import { useAppState } from '@/lib/tauri-provider'
 import { cn } from '@/lib/utils'
-import { BookOpen, CalendarDays, Home, MessageCircle, MoonStar, Notebook, Settings, SquareCheckBig } from 'lucide-react'
+import { BookOpen, CalendarDays, ChevronLeft, ChevronRight, Home, MessageCircle, MoonStar, Notebook, Settings, SquareCheckBig } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/', label: 'Главная', icon: Home },
@@ -18,11 +19,12 @@ const NAV_ITEMS = [
   { href: '/textbooks', label: 'Учебники', icon: BookOpen },
 ]
 
-export function AppShell({ children, displayName, email }: { children: ReactNode; displayName?: string; email?: string }) {
+export function AppShell({ children, displayName, email, hideSidebar }: { children: ReactNode; displayName?: string; email?: string; hideSidebar?: boolean }) {
   const pathname = usePathname()
   const { resolvedTheme, setTheme } = useTheme()
   const appState = useAppState()
   const brandIcon = '/apple-icon.png'
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const toggleTheme = async () => {
     const nextTheme = resolvedTheme === 'dark' ? 'light' : 'dark'
@@ -49,8 +51,9 @@ export function AppShell({ children, displayName, email }: { children: ReactNode
   return (
     <div className={cn('min-h-screen', shellClassName)}>
       <div className="flex min-h-screen">
-        <aside className="app-sidebar hidden lg:flex lg:w-56 lg:shrink-0 xl:w-60">
-          <div className="sticky top-0 flex h-screen w-full flex-col border-r border-white/6 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.16),_transparent_32%),linear-gradient(180deg,_rgba(10,12,24,0.98),_rgba(6,8,18,1))]">
+        {!hideSidebar && (
+          <aside className={cn('app-sidebar relative hidden lg:flex lg:shrink-0 lg:transition-[width] lg:duration-300', sidebarCollapsed ? 'lg:w-6' : 'lg:w-56 xl:w-60')}>
+          <div className={cn('sticky top-0 flex h-screen w-full flex-col border-r border-white/6 bg-[radial-gradient(circle_at_top,_rgba(92,113,255,0.16),_transparent_32%),linear-gradient(180deg,_rgba(10,12,24,0.98),_rgba(6,8,18,1))] transition-opacity duration-300', sidebarCollapsed && 'overflow-hidden opacity-0')}>
           <div className="px-4 pb-4 pt-5 xl:px-5">
             <Link href="/" className="flex items-center gap-3 rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-3">
               <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-lg shadow-primary/15">
@@ -84,7 +87,15 @@ export function AppShell({ children, displayName, email }: { children: ReactNode
             {(displayName || email) ? <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-3"><div className="truncate text-sm font-medium text-white">{displayName || 'Пользователь'}</div>{email ? <div className="mt-1 truncate text-xs text-white/45">{email}</div> : null}</div> : null}
           </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            className="absolute left-full top-6 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-white/10 bg-[#0f1324] text-white shadow-lg shadow-black/30 transition hover:border-white/20"
+          >
+            {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
         </aside>
+        )}
 
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">{children}</div>
       </div>

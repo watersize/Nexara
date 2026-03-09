@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import ReactMarkdown from 'react-markdown'
-import { Check, Clock3, Columns2, ListTodo, Plus, Trash2 } from 'lucide-react'
+import { Check, Clock3, Columns2, ListTodo, Plus, Trash2, Download } from 'lucide-react'
 import { toast } from 'sonner'
 import { AppShell } from '@/components/app-shell'
 import { MiniGraphPreview } from '@/components/graph/mini-graph-preview'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Calendar } from '@/components/ui/calendar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -154,6 +156,8 @@ export default function PlannerPage() {
   const [draft, setDraft] = useState<TaskDraft>(createEmptyDraft())
   const [activeTaskId, setActiveTaskId] = useState('')
   const [graph, setGraph] = useState<any>(null)
+  const [linkMenu, setLinkMenu] = useState<{ open: boolean, pos: number } | null>(null)
+  const [hoveredNode, setHoveredNode] = useState<{ title: string, kind: string, details?: string } | null>(null)
 
   const loadTasks = async () => {
     setLoading(true)
@@ -257,6 +261,7 @@ export default function PlannerPage() {
   }
 
   const openDraft = (task?: TaskItem) => {
+    setLinkMenu(null)
     setDraft(
       task
         ? {
@@ -292,6 +297,42 @@ export default function PlannerPage() {
       setDetailOpen(false)
       setActiveTaskId('')
     }
+  }
+
+  const handleDetailsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    let val = e.target.value
+    const cursor = e.target.selectionStart
+    
+    if (val.substring(0, cursor).endsWith('[[')) {
+      val = val.substring(0, cursor) + ']]' + val.substring(cursor)
+      setLinkMenu({ open: true, pos: cursor })
+      setDraft((c) => ({ ...c, details: val }))
+      setTimeout(() => {
+          const el = document.getElementById('details_textarea') as HTMLTextAreaElement
+          if(el) { el.focus(); el.selectionStart = el.selectionEnd = cursor }
+      }, 0)
+      return
+    } else if (val.indexOf('[[') === -1) {
+        setLinkMenu(null)
+    }
+    setDraft(c => ({...c, details: val}))
+  }
+
+  const insertLink = (type: string) => {
+      if (!linkMenu) return
+      const prefix = draft.details.substring(0, linkMenu.pos)
+      const suffix = draft.details.substring(linkMenu.pos)
+      const insertion = type + ': '
+      setDraft(c => ({...c, details: prefix + insertion + suffix}))
+      setLinkMenu(null)
+      setTimeout(() => {
+          const el = document.getElementById('details_textarea') as HTMLTextAreaElement
+          if(el) { 
+              el.focus(); 
+              const newPos = linkMenu.pos + insertion.length
+              el.selectionStart = el.selectionEnd = newPos 
+          }
+      }, 0)
   }
 
   return (
@@ -460,7 +501,27 @@ export default function PlannerPage() {
                 </Field>
                 <Field label="Дата">
                   <div className="flex gap-2">
-                    <Input type="date" value={draft.dueDate} onChange={(e) => setDraft((c) => ({ ...c, dueDate: e.target.value }))} className="h-12 rounded-2xl border-white/10 bg-black/20 text-white" />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-[180px] h-12 justify-start text-left font-normal rounded-2xl border-white/10 bg-black/20 text-white hover:bg-white/5",
+                            !draft.dueDate && "text-muted-foreground"
+                          )}
+                        >
+                          {draft.dueDate ? format(new Date(draft.dueDate), "d MMMM yyyy", { locale: ru }) : <span>Выберите дату</span>}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 rounded-2xl border-white/10 bg-neutral-900/95 backdrop-blur-xl">
+                        <Calendar
+                          mode="single"
+                          selected={draft.dueDate ? new Date(draft.dueDate) : undefined}
+                          onSelect={(date) => setDraft((c) => ({ ...c, dueDate: date ? format(date, 'yyyy-MM-dd') : '' }))}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
                     <Button type="button" variant="outline" onClick={() => setDraft((c) => ({ ...c, dueDate: '' }))} className="h-12 rounded-2xl border-white/10 bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white">
                       Без даты
                     </Button>
@@ -479,7 +540,16 @@ export default function PlannerPage() {
                 </Field>
               </div>
               <Field label="Описание">
-                <Textarea value={draft.details} onChange={(e) => setDraft((c) => ({ ...c, details: e.target.value }))} className="min-h-[170px] rounded-2xl border-white/10 bg-black/20 text-white" />
+                <div className="relative">
+                    <Textarea id="details_textarea" value={draft.details} onChange={handleDetailsChange} className="min-h-[170px] rounded-2xl border-white/10 bg-black/20 text-white" />
+                    {linkMenu?.open && (
+                        <div className="absolute top-full left-0 mt-2 z-50 flex gap-2 p-2 bg-neutral-900 border border-white/10 rounded-2xl shadow-xl animate-in fade-in slide-in-from-top-2">
+                            <button type="button" onClick={() => insertLink('Заметка')} className="px-4 py-2 rounded-xl bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-all font-semibold text-sm">Заметка</button>
+                            <button type="button" onClick={() => insertLink('Расписание')} className="px-4 py-2 rounded-xl bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-all font-semibold text-sm">Расписание</button>
+                            <button type="button" onClick={() => insertLink('Учебник')} className="px-4 py-2 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-all font-semibold text-sm">Учебник</button>
+                        </div>
+                    )}
+                </div>
               </Field>
             </div>
             <div className="rounded-[26px] border border-white/8 bg-white/[0.03] p-5">
@@ -548,48 +618,108 @@ export default function PlannerPage() {
       <Dialog open={graphOpen} onOpenChange={setGraphOpen}>
         <DialogContent
           showCloseButton={false}
-          className="rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-5xl"
+          className="rounded-[28px] border-white/10 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_32%),linear-gradient(180deg,_rgba(12,14,28,0.98),_rgba(7,9,20,1))] p-0 text-white sm:max-w-6xl"
         >
-          <div className="border-b border-white/8 px-5 py-4">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">knowledge graph</div>
-            <div className="mt-2 text-2xl font-semibold text-white">{graph?.node?.title || 'Граф связей'}</div>
-          </div>
-          <div className="p-5">
-            <div className="rounded-[26px] border border-white/8 bg-black/15 p-4">
-              <svg viewBox="0 0 720 420" className="h-[420px] w-full">
-                {graph?.neighbors?.map((neighbor: any, index: number) => {
-                  const angle = (Math.PI * 2 * index) / Math.max(graph.neighbors.length, 1) - Math.PI / 2
-                  const x = 360 + Math.cos(angle) * 150
-                  const y = 210 + Math.sin(angle) * 150
-                  const label = String(neighbor.title || '')
-                  return (
-                    <g key={neighbor.node_id}>
-                      <line
-                        x1="360"
-                        y1="210"
-                        x2={x}
-                        y2={y}
-                        stroke={neighbor.direction === 'incoming' ? 'rgba(16,185,129,0.55)' : 'rgba(59,130,246,0.55)'}
-                        strokeWidth="2"
-                      />
-                      <circle
-                        cx={x}
-                        cy={y}
-                        r="18"
-                        fill={neighbor.kind === 'note' ? '#10b981' : neighbor.kind === 'schedule' ? '#a855f7' : '#3b82f6'}
-                      />
-                      <text x={x} y={y + 34} textAnchor="middle" fill="rgba(255,255,255,0.72)" fontSize="13">
-                        {label.length > 18 ? `${label.slice(0, 18)}...` : label}
-                      </text>
-                    </g>
-                  )
-                })}
-                <circle cx="360" cy="210" r="26" fill="white" />
-                <text x="360" y="260" textAnchor="middle" fill="rgba(255,255,255,0.82)" fontSize="16">
-                  {graph?.node?.title || ''}
-                </text>
-              </svg>
-            </div>
+          <div className="flex flex-col lg:flex-row min-h-[500px]">
+              {/* Left Side: Preview */}
+              <div className="w-full lg:w-[320px] p-6 border-b lg:border-b-0 lg:border-r border-white/8 flex flex-col bg-white/[0.01]">
+                  <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Превью узла</div>
+                  {hoveredNode ? (
+                      <div className="mt-6 flex-1 flex flex-col relative">
+                          <div className="inline-flex items-center rounded-full bg-white/5 px-3 py-1 text-xs text-white/70 w-fit">{hoveredNode.kind === 'note' ? 'Заметка' : hoveredNode.kind === 'schedule' ? 'Расписание' : 'Задача'}</div>
+                          
+                          <div className="absolute top-0 right-0">
+                             <Button 
+                               variant="ghost" 
+                               size="icon" 
+                               className="h-8 w-8 text-white/40 hover:text-white"
+                               title="Скачать Markdown"
+                               onClick={() => {
+                                 const blob = new Blob([`# ${hoveredNode.title}\n\n*${hoveredNode.kind}*\n\n${hoveredNode.details || ''}`], { type: 'text/markdown' })
+                                 const url = URL.createObjectURL(blob)
+                                 const a = document.createElement('a')
+                                 a.href = url
+                                 a.download = `${hoveredNode.title}.md`
+                                 a.click()
+                                 URL.revokeObjectURL(url)
+                                 toast.success('Файл скачан')
+                               }}
+                             >
+                                <Download className="h-4 w-4" />
+                             </Button>
+                          </div>
+
+                          <h3 
+                            className="mt-4 text-2xl font-semibold text-white cursor-pointer hover:text-blue-400 transition-colors pr-10"
+                            onClick={() => {
+                                toast('Переход к объекту...', { description: hoveredNode.title })
+                            }}
+                          >
+                            {hoveredNode.title}
+                          </h3>
+                          <div className="mt-4 text-sm text-white/60 leading-relaxed italic border-l-2 border-primary/40 pl-4">{hoveredNode.details || 'Превью недоступно'}</div>
+                      </div>
+                  ) : (
+                      <div className="mt-12 text-center text-sm text-white/30 italic">Наведите на узел в графе для предпросмотра</div>
+                  )}
+              </div>
+              
+              {/* Right Side: Graph */}
+              <div className="flex-1 p-6 relative">
+                  <div className="absolute top-6 left-6 z-10">
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">knowledge graph</div>
+                    <div className="mt-2 text-2xl font-semibold text-white">{graph?.node?.title || 'Граф связей'}</div>
+                  </div>
+                  <div className="rounded-[26px] border border-white/8 bg-black/15 p-4 mt-16 h-[400px]">
+                      <svg viewBox="0 0 720 420" className="h-full w-full">
+                        {graph?.neighbors?.map((neighbor: any, index: number) => {
+                          const angle = (Math.PI * 2 * index) / Math.max(graph.neighbors.length, 1) - Math.PI / 2
+                          const x = 360 + Math.cos(angle) * 150
+                          const y = 210 + Math.sin(angle) * 150
+                          const label = String(neighbor.title || '')
+                          const isHovered = hoveredNode?.title === label
+                          return (
+                            <g 
+                                key={neighbor.node_id} 
+                                onMouseEnter={() => setHoveredNode({ title: label, kind: neighbor.kind, details: neighbor.details || `Фрагмент: ${neighbor.content ? neighbor.content.slice(0, 100) : '...'}` })}
+                                onMouseLeave={() => setHoveredNode(null)}
+                                onClick={() => setHoveredNode({ title: label, kind: neighbor.kind, details: neighbor.details || `Фрагмент: ${neighbor.content ? neighbor.content.slice(0, 100) : '...'}` })}
+                                className="cursor-pointer transition-all"
+                            >
+                              <line
+                                x1="360"
+                                y1="210"
+                                x2={x}
+                                y2={y}
+                                stroke={neighbor.direction === 'incoming' ? 'rgba(16,185,129,0.55)' : 'rgba(59,130,246,0.55)'}
+                                strokeWidth="2"
+                              />
+                              <circle
+                                cx={x}
+                                cy={y}
+                                r={isHovered ? "22" : "18"}
+                                fill={neighbor.kind === 'note' ? '#10b981' : neighbor.kind === 'schedule' ? '#a855f7' : '#3b82f6'}
+                                className="transition-all duration-300"
+                              />
+                              <text x={x} y={y + 34} textAnchor="middle" fill={isHovered ? "white" : "rgba(255,255,255,0.72)"} fontSize={isHovered ? "14" : "13"} fontWeight={isHovered ? "bold" : "normal"}>
+                                {label.length > 18 ? `${label.slice(0, 18)}...` : label}
+                              </text>
+                            </g>
+                          )
+                        })}
+                        <g 
+                            onMouseEnter={() => setHoveredNode({ title: graph?.node?.title || '', kind: graph?.node?.kind || '', details: graph?.node?.content })}
+                            onMouseLeave={() => setHoveredNode(null)}
+                            className="cursor-pointer"
+                        >
+                            <circle cx="360" cy="210" r="26" fill="white" />
+                            <text x="360" y="260" textAnchor="middle" fill="rgba(255,255,255,0.82)" fontSize="16" fontWeight="bold">
+                              {graph?.node?.title || ''}
+                            </text>
+                        </g>
+                      </svg>
+                  </div>
+              </div>
           </div>
         </DialogContent>
       </Dialog>

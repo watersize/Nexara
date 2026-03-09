@@ -1,6 +1,6 @@
 export type HybridPoint = { x: number; y: number }
 
-export type HybridObjectKind = 'text' | 'image' | 'cad' | 'stroke' | 'table'
+export type HybridObjectKind = 'text' | 'image' | 'cad' | 'stroke' | 'table' | 'diagram'
 
 export type HybridCadShape = 'rectangle' | 'circle' | 'arc' | 'polygon'
 
@@ -17,8 +17,10 @@ export type HybridObject = {
   locked: boolean
   visible: boolean
   opacity: number
+  folderId?: string
   text?: string
   variant?: 'title' | 'body' | 'callout'
+  fontSize?: number
   src?: string
   caption?: string
   traceable?: boolean
@@ -28,8 +30,15 @@ export type HybridObject = {
   units?: 'px' | 'mm'
   dash?: boolean
   stroke?: string
+  strokeWidth?: number
   fill?: string
   view?: string
+}
+
+export type NoteFolder = {
+  id: string
+  name: string
+  color?: string
 }
 
 export type LassoSelection = {

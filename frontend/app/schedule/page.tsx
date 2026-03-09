@@ -5,6 +5,7 @@ import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Calendar } from '@/components/ui/calendar'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { tauriInvoke } from '@/lib/tauri-bridge'
@@ -397,7 +398,7 @@ function ScheduleDialog({
 
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
-                          <Label className="text-white/70">Учитель</Label>
+                          <Label className="text-white/70">Дополнение:</Label>
                           <Input
                             value={lesson.teacher}
                             onChange={(event) => updateLesson(lesson.id, { teacher: event.target.value })}
@@ -447,7 +448,7 @@ function ScheduleDialog({
                         </div>
                         <div className="flex items-center gap-2">
                           <UserRound className="h-4 w-4 text-primary" />
-                          <span>{lesson.teacher || 'Учитель не указан'}</span>
+                          <span>{lesson.teacher || 'Дополнение не указано'}</span>
                         </div>
                         <div className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3 text-sm text-white/60">
                           {lesson.notes || 'Здесь появится задание или комментарий по уроку.'}

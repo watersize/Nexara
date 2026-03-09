@@ -79,59 +79,185 @@ export function HybridObjectWrapper({
   onTransform,
   children,
 }: HybridObjectWrapperProps) {
-  const outline = selected ? accent : border
+  const outline = selected ? accent : (multiSelected ? `${accent}80` : 'transparent')
+  const isImage = object.type === 'image'
+  const isText = object.type === 'text'
+
+  const handlePointerDown = (e: React.PointerEvent, pivot: string) => {
+    e.stopPropagation()
+    e.preventDefault()
+    
+    const startX = e.clientX
+    const startY = e.clientY
+    const startW = object.w
+    const startH = object.h
+    const startXPos = object.x
+    const startYPos = object.y
+    const startFontSize = object.fontSize || 16
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const dx = (moveEvent.clientX - startX) / scale
+      const dy = (moveEvent.clientY - startY) / scale
+      
+      let patch: Partial<HybridObject> = {}
+
+      if (pivot === 'se') {
+        const newW = Math.max(20, startW + dx)
+        const newH = Math.max(20, startH + dy)
+        patch = { w: newW, h: newH }
+        if (isText) {
+          // Font scaling logic: scale relative to width change
+          const ratio = newW / startW
+          patch.fontSize = Math.max(8, startFontSize * ratio)
+        }
+      } else if (pivot === 'nw') {
+        const newW = Math.max(20, startW - dx)
+        const newH = Math.max(20, startH - dy)
+        patch = { 
+          x: startXPos + (startW - newW), 
+          y: startYPos + (startH - newH), 
+          w: newW, 
+          h: newH 
+        }
+      } else if (pivot === 'ne') {
+        const newW = Math.max(20, startW + dx)
+        const newH = Math.max(20, startH - dy)
+        patch = {
+          y: startYPos + (startH - newH),
+          w: newW,
+          h: newH
+        }
+      } else if (pivot === 'sw') {
+        const newW = Math.max(20, startW - dx)
+        const newH = Math.max(20, startH + dy)
+        patch = {
+          x: startXPos + (startW - newW),
+          w: newW,
+          h: newH
+        }
+      }
+
+      onTransform(object.id, patch)
+    }
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+  }
 
   return (
     <div
-      className={cn('absolute rounded-[24px] transition-shadow', (selected || multiSelected) && 'shadow-[0_0_0_1px_rgba(121,167,255,.35)]')}
-      style={{ left: object.x * scale, top: object.y * scale, width: object.w * scale, height: object.h * scale, transform: `rotate(${object.rot}deg)`, zIndex: object.z, opacity: object.opacity }}
+      className={cn(
+        'absolute transition-shadow',
+        (selected || multiSelected) && 'z-50'
+      )}
+      style={{ 
+        left: object.x * scale, 
+        top: object.y * scale, 
+        width: object.w * scale, 
+        height: object.h * scale, 
+        transform: `rotate(${object.rot}deg)`, 
+        zIndex: object.z, 
+        opacity: object.opacity 
+      }}
     >
+      <div
+        className="absolute inset-[-4px] rounded-[4px] border-2 pointer-events-none"
+        style={{ borderColor: outline, display: (selected || multiSelected) ? 'block' : 'none' }}
+      />
+      
       <button
         type="button"
-        className="absolute inset-0 rounded-[24px] border"
-        style={{ borderColor: outline, background: object.type === 'text' ? 'rgba(255,255,255,.02)' : 'transparent' }}
-        onClick={(event) => {
-          event.stopPropagation()
+        className="absolute inset-0 cursor-move border-none bg-transparent"
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
           onSelect(object.id, event.shiftKey)
+          const startX = event.clientX
+          const startY = event.clientY
+          const startObjX = object.x
+          const startObjY = object.y
+
+          const handlePointerMove = (moveEvent: PointerEvent) => {
+            const dx = (moveEvent.clientX - startX) / scale
+            const dy = (moveEvent.clientY - startY) / scale
+            onTransform(object.id, { x: startObjX + dx, y: startObjY + dy })
+          }
+
+          const handlePointerUp = () => {
+            window.removeEventListener('pointermove', handlePointerMove)
+            window.removeEventListener('pointerup', handlePointerUp)
+          }
+
+          window.addEventListener('pointermove', handlePointerMove)
+          window.addEventListener('pointerup', handlePointerUp)
         }}
       />
 
-      {object.type === 'cad' ? <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">{renderCadShape(object)}</svg> : null}
+      <div className="pointer-events-none h-full w-full overflow-visible">
+        {object.type === 'cad' ? <svg viewBox="0 0 100 100" className="h-full w-full pointer-events-none">{renderCadShape(object)}</svg> : null}
 
-      {object.type === 'stroke' && object.points?.length ? (
-        <svg viewBox={`0 0 ${object.w} ${object.h}`} className="h-full w-full">
-          {object.points.map((point, index) => index ? <line key={index} x1={object.points![index - 1].x * object.w} y1={object.points![index - 1].y * object.h} x2={point.x * object.w} y2={point.y * object.h} stroke={object.stroke} strokeWidth={4} strokeLinecap="round" /> : null)}
-        </svg>
-      ) : null}
+        {object.type === 'stroke' && object.points?.length ? (
+          <svg viewBox={`0 0 ${object.w} ${object.h}`} className="h-full w-full pointer-events-none">
+            {object.points.map((point, index) => index ? (
+              <line 
+                key={index} 
+                x1={object.points![index - 1].x * object.w} 
+                y1={object.points![index - 1].y * object.h} 
+                x2={point.x * object.w} 
+                y2={point.y * object.h} 
+                stroke={object.stroke} 
+                strokeWidth={object.strokeWidth || 4} 
+                strokeLinecap="round" 
+              />
+            ) : null)}
+          </svg>
+        ) : null}
 
-      {children}
+        {children}
+      </div>
 
-      {selected && !object.locked ? (
+      {selected && !object.locked && (
         <>
-          <button type="button" className="absolute -right-2 -bottom-2 h-5 w-5 rounded-full border border-white/40 bg-white/90 text-[10px] font-semibold text-slate-900" onClick={(event) => { event.stopPropagation(); onTransform(object.id, { w: object.w + 20, h: object.h + 20 }) }}>
-            SE
-          </button>
-          <button type="button" className="absolute -left-2 -top-2 h-5 w-5 rounded-full border border-white/40 bg-white/90 text-[10px] font-semibold text-slate-900" onClick={(event) => { event.stopPropagation(); onTransform(object.id, { x: object.x - 20, y: object.y - 20, w: object.w + 20, h: object.h + 20 }) }}>
-            NW
-          </button>
-          <button type="button" className="absolute left-1/2 -top-8 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-full border" style={{ background: panel, color: '#fff', borderColor: border }} onClick={(event) => { event.stopPropagation(); onTransform(object.id, { rot: object.rot + 15 }) }}>
-            <RotateCw className="h-3.5 w-3.5" />
+          {/* Resize handles - Corners */}
+          {['nw', 'ne', 'sw', 'se'].map((pivot) => (
+            <div
+              key={pivot}
+              className={cn(
+                "absolute h-3 w-3 border border-blue-500 bg-white shadow-sm cursor-nwse-resize z-[60]",
+                pivot === 'nw' && "-left-1.5 -top-1.5",
+                pivot === 'ne' && "-right-1.5 -top-1.5 cursor-nesw-resize",
+                pivot === 'sw' && "-left-1.5 -bottom-1.5 cursor-nesw-resize",
+                pivot === 'se' && "-right-1.5 -bottom-1.5"
+              )}
+              onPointerDown={(e) => handlePointerDown(e, pivot)}
+            />
+          ))}
+          
+          {/* Rotation handle */}
+          <button 
+            type="button" 
+            className="absolute left-1/2 -top-8 flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full border bg-white text-blue-500 shadow-md" 
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              // Simple rotation increment for now, or could implement full rotation logic
+              onTransform(object.id, { rot: (object.rot + 15) % 360 })
+            }}
+          >
+            <RotateCw className="h-3 w-3" />
           </button>
         </>
-      ) : null}
+      )}
 
       {selected && !object.locked && object.type === 'cad' && showDimensions ? (
-        <>
-          <div className="absolute left-4 right-4 top-[-30px] flex items-center gap-2">
-            <div className="h-px flex-1" style={{ background: dim }} />
-            <input value={Math.round(object.w)} onChange={(event) => onTransform(object.id, { w: Math.max(44, Number(event.target.value || 0)) })} className="w-20 rounded-full border px-3 py-1 text-center text-[11px] font-semibold outline-none" style={{ background: panel, color: dim, borderColor: dim }} onClick={(event) => event.stopPropagation()} />
-            <div className="h-px flex-1" style={{ background: dim }} />
-          </div>
-          <div className="absolute bottom-4 left-[-34px] top-4 flex flex-col items-center justify-center gap-2">
-            <div className="h-full w-px" style={{ background: dim }} />
-            <input value={Math.round(object.h)} onChange={(event) => onTransform(object.id, { h: Math.max(44, Number(event.target.value || 0)) })} className="w-16 rounded-full border px-2 py-1 text-center text-[11px] font-semibold outline-none" style={{ background: panel, color: dim, borderColor: dim }} onClick={(event) => event.stopPropagation()} />
-          </div>
-        </>
+        <div className="absolute -bottom-8 left-0 right-0 flex justify-center">
+            <div className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-white">
+                {Math.round(object.w)} x {Math.round(object.h)}
+            </div>
+        </div>
       ) : null}
     </div>
   )
