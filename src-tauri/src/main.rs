@@ -190,6 +190,7 @@ struct UserNote {
     id: String,
     title: String,
     topic: String,
+    folder_id: Option<String>,
     content: String,
     updated_at: String,
 }
@@ -472,6 +473,17 @@ fn initialize_database(path: &Path) -> Result<(), String> {
             ON workspace_edges(user_key, to_node_id);
         CREATE INDEX IF NOT EXISTS idx_workspace_edges_target_slug
             ON workspace_edges(user_key, target_slug);
+        CREATE TABLE IF NOT EXISTS user_roadmaps (
+            user_key TEXT NOT NULL,
+            roadmap_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            nodes_json TEXT NOT NULL DEFAULT '[]',
+            edges_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_key, roadmap_id)
+        );
         INSERT OR IGNORE INTO auth_session (id, user_id, email, display_name, access_token, refresh_token, updated_at)
         VALUES (1, '', '', '', '', '', '');
         INSERT OR IGNORE INTO app_settings (id, theme, hints_enabled, enable_3d, reminder_hours, telegram_enabled, telegram_bot_token, telegram_chat_id)
@@ -1509,7 +1521,7 @@ async fn list_notes_impl(state: &AppState, user_key: String) -> Result<Vec<UserN
     db_run(state.db_path.clone(), move |conn| {
         let mut stmt = conn
             .prepare(
-                "SELECT note_id, title, topic, content, updated_at
+                "SELECT note_id, title, topic, content, updated_at, folder_id
                  FROM user_notes
                  WHERE user_key = ?1
                  ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC",
@@ -1523,6 +1535,7 @@ async fn list_notes_impl(state: &AppState, user_key: String) -> Result<Vec<UserN
                     topic: row.get(2)?,
                     content: row.get(3)?,
                     updated_at: row.get(4)?,
+                    folder_id: row.get(5)?,
                 })
             })
             .map_err(|err| err.to_string())?;
@@ -1574,40 +1587,54 @@ fn upsert_workspace_node_record(
     Ok(())
 }
 
-fn resolve_target_node_id(
+fn resolve_target_node_ids(
     conn: &Connection,
     user_key: &str,
     target_slug: &str,
     display_text: &str,
-) -> Result<Option<String>, String> {
-    let by_slug = conn
-        .query_row(
+) -> Result<Vec<String>, String> {
+    // 1. Try to find nodes by slug (exact match)
+    // If it's a folder/topic link, it might return multiple nodes
+    let mut stmt = conn
+        .prepare(
             "SELECT node_id
              FROM workspace_nodes
              WHERE user_key = ?1 AND slug = ?2
-             ORDER BY datetime(updated_at) DESC
-             LIMIT 1",
-            params![user_key, target_slug],
-            |row| row.get::<_, String>(0),
+             ORDER BY datetime(updated_at) DESC",
         )
-        .ok();
-    if by_slug.is_some() {
-        return Ok(by_slug);
+        .map_err(|err| err.to_string())?;
+    
+    let slug_matches: Vec<String> = stmt
+        .query_map(params![user_key, target_slug], |row| row.get(0))
+        .map_err(|err| err.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| err.to_string())?;
+
+    if !slug_matches.is_empty() {
+        return Ok(slug_matches);
     }
+
+    // 2. Fallback to matching by lower(title) if topic slug didn't match anything
     if display_text.trim().is_empty() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
-    Ok(conn
-        .query_row(
+
+    let mut stmt = conn
+        .prepare(
             "SELECT node_id
              FROM workspace_nodes
              WHERE user_key = ?1 AND lower(title) = lower(?2)
-             ORDER BY datetime(updated_at) DESC
-             LIMIT 1",
-            params![user_key, display_text.trim()],
-            |row| row.get::<_, String>(0),
+             ORDER BY datetime(updated_at) DESC",
         )
-        .ok())
+        .map_err(|err| err.to_string())?;
+
+    let title_matches: Vec<String> = stmt
+        .query_map(params![user_key, display_text.trim()], |row| row.get(0))
+        .map_err(|err| err.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| err.to_string())?;
+
+    Ok(title_matches)
 }
 
 fn replace_workspace_edges(
@@ -1628,27 +1655,63 @@ fn replace_workspace_edges(
         if target_slug.is_empty() {
             continue;
         }
-        let edge_id = edge_id_for(user_key, node_id, &target_slug, link.range_start, link.range_end);
-        let to_node_id = resolve_target_node_id(conn, user_key, &target_slug, &link.display_text)?;
-        conn.execute(
-            "INSERT INTO workspace_edges (
-                user_key, edge_id, from_node_id, to_node_id, target_slug, edge_type, display_text, range_start, range_end, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                user_key,
-                edge_id,
-                node_id,
-                to_node_id,
-                target_slug,
-                if link.edge_type.trim().is_empty() { "wikilink" } else { link.edge_type.trim() },
-                link.display_text.trim(),
-                link.range_start,
-                link.range_end,
-                now,
-                now,
-            ],
-        )
-        .map_err(|err| err.to_string())?;
+        
+        // Resolve all target node IDs (could be multiple if it's a folder/topic link)
+        let to_node_ids = resolve_target_node_ids(conn, user_key, &target_slug, &link.display_text)?;
+        
+        if to_node_ids.is_empty() {
+            // Save a ghost edge (to_node_id is NULL) so we can still see it in the list
+            let edge_id = edge_id_for(user_key, node_id, &target_slug, link.range_start, link.range_end);
+            conn.execute(
+                "INSERT INTO workspace_edges (
+                    user_key, edge_id, from_node_id, to_node_id, target_slug, edge_type, display_text, range_start, range_end, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    user_key,
+                    edge_id,
+                    node_id,
+                    target_slug,
+                    if link.edge_type.trim().is_empty() { "wikilink" } else { link.edge_type.trim() },
+                    link.display_text.trim(),
+                    link.range_start,
+                    link.range_end,
+                    now,
+                    now,
+                ],
+            )
+            .map_err(|err| err.to_string())?;
+        } else {
+            for (_idx, to_id) in to_node_ids.iter().enumerate() {
+                // Adjust edge_id to be unique even when linking to multiple nodes for the same link range
+                let unique_target_seed = if to_node_ids.len() > 1 {
+                    format!("{}:{}", target_slug, to_id)
+                } else {
+                    target_slug.clone()
+                };
+                
+                let edge_id = edge_id_for(user_key, node_id, &unique_target_seed, link.range_start, link.range_end);
+                
+                conn.execute(
+                    "INSERT INTO workspace_edges (
+                        user_key, edge_id, from_node_id, to_node_id, target_slug, edge_type, display_text, range_start, range_end, created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![
+                        user_key,
+                        edge_id,
+                        node_id,
+                        to_id,
+                        target_slug,
+                        if link.edge_type.trim().is_empty() { "wikilink" } else { link.edge_type.trim() },
+                        link.display_text.trim(),
+                        link.range_start,
+                        link.range_end,
+                        now,
+                        now,
+                    ],
+                )
+                .map_err(|err| err.to_string())?;
+            }
+        }
     }
     Ok(())
 }
@@ -1718,21 +1781,25 @@ async fn get_node_with_neighbors_impl(
 
         let mut stmt = conn
             .prepare(
-                "SELECT neighbor.node_id, neighbor.kind, neighbor.title, neighbor.slug, neighbor.topic,
+                "SELECT COALESCE(neighbor.node_id, edge.neighbor_id) as n_id, 
+                        COALESCE(neighbor.kind, 'folder') as n_kind, 
+                        COALESCE(neighbor.title, edge.neighbor_id) as n_title, 
+                        COALESCE(neighbor.slug, edge.neighbor_id) as n_slug, 
+                        COALESCE(neighbor.topic, '') as n_topic,
                         edge.edge_type, edge.direction, COUNT(*) AS weight
                  FROM (
-                    SELECT to_node_id AS neighbor_id, edge_type, 'outgoing' AS direction
+                    SELECT COALESCE(to_node_id, target_slug) AS neighbor_id, edge_type, 'outgoing' AS direction
                     FROM workspace_edges
-                    WHERE user_key = ?1 AND from_node_id = ?2 AND to_node_id IS NOT NULL
+                    WHERE user_key = ?1 AND from_node_id = ?2
                     UNION ALL
                     SELECT from_node_id AS neighbor_id, edge_type, 'incoming' AS direction
                     FROM workspace_edges
-                    WHERE user_key = ?1 AND to_node_id = ?2
+                    WHERE user_key = ?1 AND COALESCE(to_node_id, target_slug) = ?2
                  ) edge
-                 JOIN workspace_nodes neighbor
+                 LEFT JOIN workspace_nodes neighbor
                    ON neighbor.user_key = ?1 AND neighbor.node_id = edge.neighbor_id
-                 GROUP BY neighbor.node_id, neighbor.kind, neighbor.title, neighbor.slug, neighbor.topic, edge.edge_type, edge.direction
-                 ORDER BY weight DESC, neighbor.updated_at DESC, neighbor.title ASC",
+                 GROUP BY n_id, n_kind, n_title, n_slug, n_topic, edge.edge_type, edge.direction
+                 ORDER BY weight DESC, n_title ASC",
             )
             .map_err(|err| err.to_string())?;
         let rows = stmt
@@ -1773,11 +1840,13 @@ async fn save_note_impl(state: &AppState, user_key: String, note: UserNote) -> R
                 |row| row.get(0),
             )
             .unwrap_or_else(|_| Local::now().to_rfc3339());
+        let folder_id = note.folder_id.clone().unwrap_or_default();
         conn.execute(
-            "INSERT INTO user_notes (user_key, note_id, node_id, title, topic, content, updated_at, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO user_notes (user_key, note_id, node_id, folder_id, title, topic, content, updated_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(user_key, note_id) DO UPDATE SET
                 node_id = excluded.node_id,
+                folder_id = excluded.folder_id,
                 title = excluded.title,
                 topic = excluded.topic,
                 content = excluded.content,
@@ -1786,6 +1855,7 @@ async fn save_note_impl(state: &AppState, user_key: String, note: UserNote) -> R
                 &user_key,
                 &note.id,
                 &node_id,
+                &folder_id,
                 &note.title,
                 &note.topic,
                 &note.content,
@@ -2756,6 +2826,8 @@ pub struct GlobalGraphSnapshot {
     pub edges: Vec<GlobalGraphEdge>,
 }
 
+
+
 async fn get_all_graph_impl(
     state: &AppState,
     user_key: String,
@@ -2789,14 +2861,14 @@ async fn get_all_graph_impl(
 
         let mut edges_stmt = conn
             .prepare(
-                "SELECT from_node_id, to_node_id, edge_type
+                "SELECT from_node_id, COALESCE(to_node_id, target_slug) AS dst_id, edge_type
                  FROM workspace_edges
-                 WHERE user_key = ?1 AND to_node_id IS NOT NULL",
+                 WHERE user_key = ?1",
             )
             .map_err(|err| err.to_string())?;
         
         let edges: Vec<GlobalGraphEdge> = edges_stmt
-            .query_map([user_key], |row| {
+            .query_map([user_key.clone()], |row| {
                 Ok(GlobalGraphEdge {
                     from_node_id: row.get(0)?,
                     to_node_id: row.get(1)?,
@@ -2807,7 +2879,46 @@ async fn get_all_graph_impl(
             .filter_map(Result::ok)
             .collect();
 
-        Ok(GlobalGraphSnapshot { nodes, edges })
+        // Include note folders as nodes
+        let mut folders_stmt = conn.prepare(
+            "SELECT folder_id, name, created_at, updated_at FROM note_folders WHERE user_key = ?1"
+        ).map_err(|err| err.to_string())?;
+        
+        let folders: Vec<GlobalGraphNode> = folders_stmt.query_map([user_key.clone()], |row| {
+            let name: String = row.get(1)?;
+            Ok(GlobalGraphNode {
+                node_id: row.get(0)?,
+                kind: "folder".to_string(),
+                title: name.clone(),
+                slug: slugify(&name),
+                topic: "".to_string(),
+                content: "".to_string(),
+                source_ref: "".to_string(),
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        }).map_err(|err| err.to_string())?.filter_map(Result::ok).collect();
+        
+        // Include edges between notes and their folders
+        let mut folder_edges_stmt = conn.prepare(
+            "SELECT node_id, folder_id FROM user_notes WHERE user_key = ?1 AND folder_id != ''"
+        ).map_err(|err| err.to_string())?;
+        
+        let folder_edges: Vec<GlobalGraphEdge> = folder_edges_stmt.query_map([user_key], |row| {
+            Ok(GlobalGraphEdge {
+                from_node_id: row.get(0)?,
+                to_node_id: row.get(1)?,
+                edge_type: "folder".to_string(),
+            })
+        }).map_err(|err| err.to_string())?.filter_map(Result::ok).collect();
+
+        let mut all_nodes = nodes;
+        all_nodes.extend(folders);
+        
+        let mut all_edges = edges;
+        all_edges.extend(folder_edges);
+
+        Ok(GlobalGraphSnapshot { nodes: all_nodes, edges: all_edges })
     }).await
 }
 
@@ -3001,6 +3112,112 @@ async fn search_notes(
     .await
 }
 
+#[tauri::command]
+async fn get_roadmaps(
+    state: State<'_, AppState>,
+) -> Result<Vec<Value>, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    db_run(state.db_path.clone(), move |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT roadmap_id, name, description, nodes_json, edges_json FROM user_roadmaps WHERE user_key = ?1 ORDER BY created_at ASC",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![user_key], |row| {
+                let id: String = row.get(0)?;
+                let name: String = row.get(1)?;
+                let desc: String = row.get(2)?;
+                let nodes_str: String = row.get(3)?;
+                let edges_str: String = row.get(4)?;
+                Ok((id, name, desc, nodes_str, edges_str))
+            })
+            .map_err(|err| err.to_string())?;
+        let mut results = Vec::new();
+        for row in rows {
+            let (id, name, desc, nodes_str, edges_str) = row.map_err(|err| err.to_string())?;
+            let nodes: Value = serde_json::from_str(&nodes_str).unwrap_or(json!([]));
+            let edges: Value = serde_json::from_str(&edges_str).unwrap_or(json!([]));
+            results.push(json!({
+                "id": id,
+                "name": name,
+                "desc": desc,
+                "nodes": nodes,
+                "edges": edges,
+            }));
+        }
+        Ok(results)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn save_roadmaps(
+    roadmaps: Vec<Value>,
+    state: State<'_, AppState>,
+) -> Result<OperationResult, String> {
+    let session = load_auth_session(&state).await?;
+    let user_key = local_user_key(session.as_ref());
+    db_run(state.db_path.clone(), move |conn| {
+        let now = Local::now().to_rfc3339();
+        // Collect IDs of roadmaps being saved
+        let mut saved_ids: Vec<String> = Vec::new();
+        for rm in &roadmaps {
+            let id = rm.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if id.is_empty() { continue; }
+            saved_ids.push(id.clone());
+            let name = rm.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let desc = rm.get("desc").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let nodes_json = serde_json::to_string(rm.get("nodes").unwrap_or(&json!([]))).unwrap_or("[]".to_string());
+            let edges_json = serde_json::to_string(rm.get("edges").unwrap_or(&json!([]))).unwrap_or("[]".to_string());
+            let created_at: String = conn
+                .query_row(
+                    "SELECT created_at FROM user_roadmaps WHERE user_key = ?1 AND roadmap_id = ?2",
+                    params![user_key.clone(), id.clone()],
+                    |row| row.get(0),
+                )
+                .unwrap_or_else(|_| now.clone());
+            conn.execute(
+                "INSERT INTO user_roadmaps (user_key, roadmap_id, name, description, nodes_json, edges_json, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(user_key, roadmap_id) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    nodes_json = excluded.nodes_json,
+                    edges_json = excluded.edges_json,
+                    updated_at = excluded.updated_at",
+                params![user_key.clone(), id, name, desc, nodes_json, edges_json, created_at, now.clone()],
+            )
+            .map_err(|err| err.to_string())?;
+        }
+        // Delete roadmaps that were removed
+        if !saved_ids.is_empty() {
+            let placeholders: Vec<String> = saved_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 2)).collect();
+            let sql = format!(
+                "DELETE FROM user_roadmaps WHERE user_key = ?1 AND roadmap_id NOT IN ({})",
+                placeholders.join(", ")
+            );
+            let mut stmt = conn.prepare(&sql).map_err(|err| err.to_string())?;
+            let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            param_values.push(Box::new(user_key.clone()));
+            for id in &saved_ids {
+                param_values.push(Box::new(id.clone()));
+            }
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+            stmt.execute(param_refs.as_slice()).map_err(|err| err.to_string())?;
+        } else {
+            conn.execute("DELETE FROM user_roadmaps WHERE user_key = ?1", params![user_key])
+                .map_err(|err| err.to_string())?;
+        }
+        Ok(OperationResult {
+            ok: true,
+            message: "Дорожные карты сохранены".to_string(),
+        })
+    })
+    .await
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -3045,6 +3262,8 @@ fn main() {
             ask_ai,
             generate_study_plan,
             notify_status,
+            get_roadmaps,
+            save_roadmaps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

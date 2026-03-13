@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -488,9 +488,55 @@ export default function SchedulePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [previewLesson, setPreviewLesson] = useState<Lesson | null>(null)
 
+  // Anchor Node State
+  const [anchorPos, setAnchorPos] = useState({ x: 40, y: 340 })
+  const [isDraggingAnchor, setIsDraggingAnchor] = useState(false)
+  const [lessonPositions, setLessonPositions] = useState<{ id: string; x: number; y: number }[]>([])
+  const containerRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     setSelectedDay(defaultDay)
   }, [defaultDay])
+
+  useEffect(() => {
+    if (!containerRef.current || isLoading) return
+
+    const updatePositions = () => {
+      const articles = containerRef.current?.querySelectorAll('article')
+      const containerRect = containerRef.current?.getBoundingClientRect()
+      if (!articles || !containerRect) return
+
+      const positions = Array.from(articles).map((art, i) => {
+        const rect = art.getBoundingClientRect()
+        return {
+          id: lessons[i]?.id || String(i),
+          x: rect.left - containerRect.left,
+          y: rect.top - containerRect.top + rect.height / 2,
+        }
+      })
+      setLessonPositions(positions)
+    }
+
+    const timer = setTimeout(updatePositions, 600)
+    window.addEventListener('resize', updatePositions)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', updatePositions)
+    }
+  }, [lessons, isLoading])
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingAnchor || !containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    setAnchorPos({
+      x: e.clientX - rect.left - 60,
+      y: e.clientY - rect.top - 40,
+    })
+  }
+
+  const handleMouseUp = () => {
+    setIsDraggingAnchor(false)
+  }
 
   const weekDates = getWeekDates(weekOffset)
   const weekStart = weekDates[0]
@@ -642,8 +688,48 @@ export default function SchedulePage() {
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
-      <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-1 flex-col px-5 py-7 sm:px-8">
-        <div className="grid gap-5">
+      <main
+        ref={containerRef}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-1 flex-col px-5 py-7 sm:px-8 overflow-hidden"
+      >
+        {/* SVG Layer for Automated Task Connections */}
+        <svg className="absolute inset-0 z-0 pointer-events-none">
+          {lessonPositions.map((pos) => {
+            const sx = anchorPos.x + 120
+            const sy = anchorPos.y + 40
+            const ex = pos.x
+            const ey = pos.y
+            const cpx = sx + (ex - sx) / 2
+            const cpy = sy
+            return (
+              <path
+                key={pos.id}
+                d={`M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`}
+                fill="none"
+                stroke="rgba(0, 210, 255, 0.3)"
+                strokeWidth="2"
+                strokeDasharray="5,5"
+              />
+            )
+          })}
+        </svg>
+
+        {/* Movable Anchor Node */}
+        <div
+          className="absolute z-20 cursor-grab active:cursor-grabbing select-none"
+          style={{ left: anchorPos.x, top: anchorPos.y }}
+          onMouseDown={() => setIsDraggingAnchor(true)}
+        >
+          <div className="rounded-2xl border border-[#00d2ff]/30 bg-[#0e111a]/90 p-4 shadow-[0_0_20px_rgba(0,210,255,0.2)] backdrop-blur-md">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#00d2ff]">Project Anchor</div>
+            <div className="mt-1 text-xl font-bold text-white">11.03.2026</div>
+          </div>
+        </div>
+
+        <div className="relative z-10 grid gap-5">
           <section className="rounded-[30px] border border-white/7 bg-[radial-gradient(circle_at_top,_rgba(72,97,255,0.14),_transparent_36%),rgba(255,255,255,0.02)] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -681,31 +767,9 @@ export default function SchedulePage() {
               ))}
             </div>
           </section>
-
-          {false && <aside className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
-            <div className="rounded-[28px] border border-white/7 bg-white/[0.03] p-5">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/35">День</div>
-              <div className="mt-4 text-4xl font-semibold text-white">{DAYS_FULL[selectedDay]}</div>
-              <div className="mt-2 text-lg text-white/55">{selectedDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}</div>
-            </div>
-            <div className="rounded-[28px] border border-white/7 bg-white/[0.03] p-5">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/35">Уроков</div>
-              <div className="mt-4 text-4xl font-semibold text-white">{lessons.length}</div>
-              <div className="mt-2 text-sm text-white/45">Количество блоков на выбранный день</div>
-            </div>
-            <div className="rounded-[28px] border border-white/7 bg-primary/85 p-5 shadow-[0_0_42px_-18px_rgba(92,113,255,0.9)]">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/65">Следующий шаг</div>
-              <div className="mt-4 text-3xl font-semibold text-white">
-                {lessons.length ? 'Проверь уроки' : 'Собери день'}
-              </div>
-              <div className="mt-3 text-base text-white/80">
-                {lessons.length ? 'Если нужно, открой конструктор и поправь порядок или детали.' : 'Добавь первый урок через круглую кнопку справа снизу.'}
-              </div>
-            </div>
-          </aside>}
         </div>
 
-        <section className="mt-8 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <section className="relative z-10 mt-8 flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="mb-5">
             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Детали дня</div>
             <h2 className="mt-2 text-3xl font-semibold text-white">

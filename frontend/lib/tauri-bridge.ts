@@ -7,6 +7,7 @@ const mockDb = {
   nodes: [] as any[],
   edges: [] as any[],
   folders: [] as any[],
+  roadmaps: [] as any[],
 }
 
 export async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -164,6 +165,14 @@ async function mockInvoke(command: string, args?: Record<string, unknown>): Prom
       mockDb.textbooks = []
       mockDb.folders = []
       return { ok: true, message: 'ok' }
+    case 'get_roadmaps':
+      return mockDb.roadmaps
+    case 'save_roadmaps': {
+      mockDb.roadmaps = (args as any)?.roadmaps || []
+      return { ok: true, message: 'ok' }
+    }
+    case 'get_all_graph':
+      return { nodes: mockDb.nodes, edges: mockDb.edges }
     default:
       console.log(`Mock ignored command: ${command}`)
       return {}

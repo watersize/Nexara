@@ -118,7 +118,9 @@ const Tip = ({ children, label, side = 'bottom' }: { children: React.ReactNode; 
 export default function NotebookPage() {
   const appState = useAppState()
   const { resolvedTheme } = useTheme()
-  const dark = resolvedTheme !== 'light'
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const dark = mounted ? resolvedTheme !== 'light' : true
   const user = appState?.authSession ? { displayName: appState.authSession.display_name, email: appState.authSession.email } : undefined
 
   /* State */
@@ -152,6 +154,12 @@ export default function NotebookPage() {
   const [dragNoteId, setDragNoteId] = useState<string | null>(null)
   const [tableParams, setTableParams] = useState({ rows: 3, cols: 3 })
   const [diagramType, setDiagramType] = useState<'bar' | 'pie' | 'line' | 'donut'>('bar')
+  const [fontFamily, setFontFamily] = useState('Inter, sans-serif')
+  // Table data entry modal
+  const [tableModalOpen, setTableModalOpen] = useState(false)
+  const [tableDraftData, setTableDraftData] = useState<string[][]>([])
+  const [tableDraftRows, setTableDraftRows] = useState(3)
+  const [tableDraftCols, setTableDraftCols] = useState(3)
   
   /* Wiki-link state */
   const [wikiLink, setWikiLink] = useState<{ blockId: string; position: { x: number; y: number } } | null>(null)
@@ -212,7 +220,7 @@ export default function NotebookPage() {
     const content = serialize(note.doc)
     await tauriInvoke('save_note', {
       payload: {
-        note: { id: note.id, title: note.doc.title || note.title, topic: note.topic, content, updated_at: new Date().toISOString() }
+        note: { id: note.id, title: note.doc.title || note.title, topic: note.topic, folder_id: note.folderId, content, updated_at: new Date().toISOString() }
       }
     })
   }
@@ -273,22 +281,54 @@ export default function NotebookPage() {
     pushUndo()
     const cx = (-panOffset.x + (stageRef.current?.clientWidth || 600) / 2) / scale
     const cy = (-panOffset.y + (stageRef.current?.clientHeight || 400) / 2) / scale
+    // Rectangle wider than tall; text gets more width
+    const defaultW = type === 'text' ? 280 : type === 'cad' ? 240 : 160
+    const defaultH = type === 'text' ? 80 : type === 'cad' ? 140 : 160
     const newObj: HybridObject = {
-      id: makeId('obj'), type, name: type, x: cx - 80 + Math.random() * 40, y: cy - 80 + Math.random() * 40,
-      w: type === 'text' ? 300 : 160, h: type === 'text' ? 100 : 160, rot: 0, z: (active?.doc.objects.length || 0) + 1,
+      id: makeId('obj'), type, name: type,
+      x: cx - defaultW / 2 + Math.random() * 20,
+      y: cy - defaultH / 2 + Math.random() * 20,
+      w: defaultW, h: defaultH,
+      rot: 0, z: (active?.doc.objects.length || 0) + 1,
       locked: false, visible: true, opacity: 1,
-      ...(type === 'cad' ? { shape: 'rectangle' as const, stroke: shapeColor, fill: shapeFill, dash: false, strokeWidth: 3 } : {}),
-      ...(type === 'text' ? { text: '', fontSize: 16 } : {}),
+      ...(type === 'cad' ? { shape: 'rectangle' as const, stroke: shapeColor, fill: shapeFill, dash: false, strokeWidth: strokeWidth } : {}),
+      ...(type === 'text' ? { text: '', fontSize: 16, fontFamily } : {}),
       ...(type === 'table' ? { cells: Array.from({ length: tableParams.rows }, (_, r) => Array.from({ length: tableParams.cols }, (_, c) => r === 0 ? `Кол. ${c + 1}` : '')) } : {}),
       ...(type === 'diagram' ? { cells: [['A', '30'], ['B', '50'], ['C', '20'], ['D', '40']], shape: 'rectangle' as const, dash: true, view: diagramType } : {}),
       ...extra,
     }
     updateActiveDoc(doc => ({ ...doc, objects: [...doc.objects, newObj] }))
-    // Automatically select the newly created object (unless we are just drawing lines)
     if (type !== 'stroke' && type !== 'image') {
       setSelectedId(newObj.id)
       setSelectedIds([newObj.id])
     }
+  }
+
+  const openTableModal = () => {
+    const data = Array.from({ length: tableDraftRows }, (_, r) =>
+      Array.from({ length: tableDraftCols }, (_, c) => r === 0 ? `Кол. ${c + 1}` : '')
+    )
+    setTableDraftData(data)
+    setTableModalOpen(true)
+  }
+
+  const confirmCreateTable = () => {
+    pushUndo()
+    const cx = (-panOffset.x + (stageRef.current?.clientWidth || 600) / 2) / scale
+    const cy = (-panOffset.y + (stageRef.current?.clientHeight || 400) / 2) / scale
+    const w = tableDraftCols * 120
+    const h = tableDraftRows * 36
+    const newObj: HybridObject = {
+      id: makeId('obj'), type: 'table', name: 'table',
+      x: cx - w / 2, y: cy - h / 2,
+      w, h, rot: 0, z: (active?.doc.objects.length || 0) + 1,
+      locked: false, visible: true, opacity: 1,
+      cells: tableDraftData,
+    }
+    updateActiveDoc(doc => ({ ...doc, objects: [...doc.objects, newObj] }))
+    setSelectedId(newObj.id)
+    setSelectedIds([newObj.id])
+    setTableModalOpen(false)
   }
 
   const applyPatchToSelected = useCallback((patch: Partial<HybridObject>) => {
@@ -427,45 +467,67 @@ export default function NotebookPage() {
           ;(window as any).__clipboard = JSON.parse(JSON.stringify(copied))
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        // Check clipboard for images first
-        navigator.clipboard.read?.().then(items => {
-          for (const item of items) {
-            const imgType = item.types.find(t => t.startsWith('image/'))
-            if (imgType) {
-              item.getType(imgType).then(blob => {
-                const reader = new FileReader()
-                reader.onload = () => {
-                  pushUndo()
-                  addCanvasObject('image', { src: reader.result as string, w: 300, h: 200 })
-                }
-                reader.readAsDataURL(blob)
-              })
-              return
-            }
-          }
-          // Fallback: paste objects
-          const clipboard = (window as any).__clipboard as HybridObject[] | undefined
-          if (clipboard?.length && document.activeElement === document.body) {
-            pushUndo()
-            const newObjects = clipboard.map(o => ({ ...o, id: makeId('obj'), x: o.x + 20, y: o.y + 20 }))
-            updateActiveDoc(doc => ({ ...doc, objects: [...doc.objects, ...newObjects] }))
-            setSelectedIds(newObjects.map(o => o.id))
-          }
-        }).catch(() => {
-          const clipboard = (window as any).__clipboard as HybridObject[] | undefined
-          if (clipboard?.length && document.activeElement === document.body) {
-            pushUndo()
-            const newObjects = clipboard.map(o => ({ ...o, id: makeId('obj'), x: o.x + 20, y: o.y + 20 }))
-            updateActiveDoc(doc => ({ ...doc, objects: [...doc.objects, ...newObjects] }))
-            setSelectedIds(newObjects.map(o => o.id))
-          }
-        })
-      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [activeNoteId, active, selectedIds, undo, redo, pushUndo])
+  }, [activeNoteId, active, selectedIds, undo, redo, pushUndo, updateActiveDoc])
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (!activeNoteId || !active || active.doc.mode !== 'canvas') return
+
+      const activeEl = document.activeElement
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.hasAttribute('contenteditable'))) {
+        return
+      }
+
+      // Check for images
+      if (e.clipboardData?.items) {
+        const items = Array.from(e.clipboardData.items)
+        const imgItem = items.find(item => item.type.startsWith('image/'))
+        if (imgItem) {
+          const file = imgItem.getAsFile()
+          if (file) {
+            e.preventDefault()
+            const reader = new FileReader()
+            reader.onload = () => {
+              pushUndo()
+              const cx = (-panOffset.x + (stageRef.current?.clientWidth || 600) / 2) / scale
+              const cy = (-panOffset.y + (stageRef.current?.clientHeight || 400) / 2) / scale
+              addCanvasObject('image', { src: reader.result as string, x: cx - 150, y: cy - 100, w: 300, h: 200 })
+            }
+            reader.readAsDataURL(file)
+            return
+          }
+        }
+      }
+
+      // Check for text
+      const text = e.clipboardData?.getData('text/plain')
+      if (text && text.trim()) {
+        e.preventDefault()
+        pushUndo()
+        const textLines = text.trim().split('\n').length
+        const h = Math.max(100, textLines * 24 + 40)
+        const cx = (-panOffset.x + (stageRef.current?.clientWidth || 600) / 2) / scale
+        const cy = (-panOffset.y + (stageRef.current?.clientHeight || 400) / 2) / scale
+        addCanvasObject('text', { x: cx - 125, y: Math.max(0, cy - h / 2), text: text.trim(), w: 250, h, fontSize: 16, fill: 'transparent', stroke: 'transparent' })
+        return
+      }
+
+      // Fallback: paste objects
+      const clipboard = (window as any).__clipboard as HybridObject[] | undefined
+      if (clipboard?.length) {
+        e.preventDefault()
+        pushUndo()
+        const newObjects = clipboard.map(o => ({ ...o, id: makeId('obj'), x: o.x + 20, y: o.y + 20 }))
+        updateActiveDoc(doc => ({ ...doc, objects: [...doc.objects, ...newObjects] }))
+        setSelectedIds(newObjects.map(o => o.id))
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [activeNoteId, active, undo, pushUndo, updateActiveDoc, panOffset, scale])
 
   /* ── Export ──────────────────────────────────────────── */
   const exportMarkdown = (note: NoteRecord) => {
@@ -722,57 +784,90 @@ export default function NotebookPage() {
               {active.doc.mode === 'canvas' && (
                 <>
                   <div className={cn('w-px h-6', dark ? 'bg-white/10' : 'bg-gray-200')} />
-                  <Tip label="Выделение"><Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" className="h-8 w-8 rounded-xl" onClick={() => setTool('select')}><MousePointer2 className="h-4 w-4" /></Button></Tip>
-                  <Tip label="Рисование"><Button variant={tool === 'stroke' ? 'default' : 'ghost'} size="icon" className="h-8 w-8 rounded-xl" onClick={() => setTool('stroke')}><PenTool className="h-4 w-4" /></Button></Tip>
+                  <Tip label="Выделение">
+                    <button
+                      type="button"
+                      onClick={() => setTool('select')}
+                      className={cn('h-8 w-8 rounded-xl flex items-center justify-center transition-all', tool === 'select' ? 'bg-blue-500 text-white shadow-md' : (dark ? 'hover:bg-white/8 text-white/60' : 'hover:bg-gray-100 text-gray-500'))}
+                    >
+                      <MousePointer2 className="h-4 w-4" />
+                    </button>
+                  </Tip>
+                  <Tip label="Рисование">
+                    <button
+                      type="button"
+                      onClick={() => setTool('stroke')}
+                      className={cn('h-8 w-8 rounded-xl flex items-center justify-center transition-all', tool === 'stroke' ? 'bg-blue-500 text-white shadow-md' : (dark ? 'hover:bg-white/8 text-white/60' : 'hover:bg-gray-100 text-gray-500'))}
+                    >
+                      <PenTool className="h-4 w-4" />
+                    </button>
+                  </Tip>
 
-                  {/* Shapes dropdown — NO Tip wrapping the trigger */}
+                  {/* Shapes direct buttons — reliable click */}
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" title="Фигуры"><Square className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent className={dark ? 'bg-neutral-900 border-white/10' : ''}>
-                      <DropdownMenuItem onSelect={() => addCanvasObject('cad', { shape: 'rectangle' })}><Square className="h-4 w-4 mr-2" /> Прямоугольник</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => addCanvasObject('cad', { shape: 'circle' })}><Circle className="h-4 w-4 mr-2" /> Круг</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => addCanvasObject('cad', { shape: 'triangle' })}><Triangle className="h-4 w-4 mr-2" /> Треугольник</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => addCanvasObject('cad', { shape: 'rhombus' })}><Diamond className="h-4 w-4 mr-2" /> Ромб</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => addCanvasObject('cad', { shape: 'polygon' })}><Hexagon className="h-4 w-4 mr-2" /> Полигон</DropdownMenuItem>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn('h-8 w-8 rounded-xl flex items-center justify-center transition-all', dark ? 'hover:bg-white/8 text-white/60' : 'hover:bg-gray-100 text-gray-500')}
+                      >
+                        <Square className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent sideOffset={8} className={dark ? 'bg-neutral-900 border-white/10 z-[200]' : 'z-[200]'}>
+                      {[{shape:'rectangle' as const, icon: Square, label: 'Прямоугольник'}, {shape:'circle' as const, icon: Circle, label: 'Круг'}, {shape:'triangle' as const, icon: Triangle, label: 'Треугольник'}, {shape:'rhombus' as const, icon: Diamond, label: 'Ромб'}, {shape:'polygon' as const, icon: Hexagon, label: 'Полигон'}].map(({shape, icon: Icon, label}) => (
+                        <DropdownMenuItem key={shape} onSelect={() => { setTool('select'); addCanvasObject('cad', { shape }) }}>
+                          <Icon className="h-4 w-4 mr-2" /> {label}
+                        </DropdownMenuItem>
+                      ))}
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={() => addCanvasObject('stroke', { w: 200, h: 4, points: [{x:0,y:0.5},{x:1,y:0.5}], stroke: shapeColor, strokeWidth: 3 })}><Minus className="h-4 w-4 mr-2" /> Линия</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { setTool('select'); addCanvasObject('stroke', { w: 200, h: 4, points: [{x:0,y:0.5},{x:1,y:0.5}], stroke: shapeColor, strokeWidth: strokeWidth }) }}>
+                        <Minus className="h-4 w-4 mr-2" /> Линия
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  {/* Text dropdown — NO Tip wrapping the trigger */}
+                  {/* Text dropdown */}
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" title="Текст"><Type className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent className={dark ? 'bg-neutral-900 border-white/10' : ''}>
-                      <DropdownMenuItem onSelect={() => addCanvasObject('text', { fontSize: 24, text: '', stroke: shapeColor })}>Заголовок</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => addCanvasObject('text', { fontSize: 16, text: '', stroke: shapeColor })}>Обычный текст</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => addCanvasObject('text', { fontSize: 12, text: '', stroke: shapeColor })}>Маленький текст</DropdownMenuItem>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn('h-8 w-8 rounded-xl flex items-center justify-center transition-all', dark ? 'hover:bg-white/8 text-white/60' : 'hover:bg-gray-100 text-gray-500')}
+                      >
+                        <Type className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent sideOffset={8} className={dark ? 'bg-neutral-900 border-white/10 z-[200]' : 'z-[200]'}>
+                      <DropdownMenuItem onSelect={() => { setTool('select'); addCanvasObject('text', { fontSize: 24, text: '' }) }}>Заголовок</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { setTool('select'); addCanvasObject('text', { fontSize: 16, text: '' }) }}>Обычный текст</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { setTool('select'); addCanvasObject('text', { fontSize: 12, text: '' }) }}>Маленький текст</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  {/* Table popup — NO Tip wrapping the trigger */}
-                  <Popover>
-                    <PopoverTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" title="Таблица"><Table className="h-4 w-4" /></Button></PopoverTrigger>
-                    <PopoverContent align="start" className={cn('w-48 p-3 space-y-3', dark ? 'bg-neutral-900 border-white/10' : '')}>
-                      <div className={cn('text-xs font-semibold', dark ? 'text-white/60' : 'text-gray-500')}>Параметры таблицы</div>
-                      <div className="flex items-center gap-2">
-                        <span className={cn('text-xs', dark ? 'text-white/50' : 'text-gray-500')}>Строки:</span>
-                        <input type="number" min={1} max={20} value={tableParams.rows} onChange={e => setTableParams(p => ({ ...p, rows: Math.max(1, +e.target.value) }))} className={cn('w-14 rounded px-2 py-1 text-xs', dark ? 'bg-white/10 text-white' : 'bg-gray-100')} />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={cn('text-xs', dark ? 'text-white/50' : 'text-gray-500')}>Колонки:</span>
-                        <input type="number" min={1} max={10} value={tableParams.cols} onChange={e => setTableParams(p => ({ ...p, cols: Math.max(1, +e.target.value) }))} className={cn('w-14 rounded px-2 py-1 text-xs', dark ? 'bg-white/10 text-white' : 'bg-gray-100')} />
-                      </div>
-                      <Button size="sm" className="w-full h-8 text-xs rounded-lg" onPointerDown={(e) => { e.preventDefault(); addCanvasObject('table', { w: tableParams.cols * 100, h: tableParams.rows * 36 }) }}>Вставить</Button>
-                    </PopoverContent>
-                  </Popover>
+                  {/* Table button — opens data-entry modal */}
+                  <Tip label="Таблица">
+                    <button
+                      type="button"
+                      onClick={() => openTableModal()}
+                      className={cn('h-8 w-8 rounded-xl flex items-center justify-center transition-all', dark ? 'hover:bg-white/8 text-white/60' : 'hover:bg-gray-100 text-gray-500')}
+                    >
+                      <Table className="h-4 w-4" />
+                    </button>
+                  </Tip>
 
-                  {/* Diagram popup — NO Tip wrapping the trigger */}
+                  {/* Diagram popup */}
                   <Popover>
-                    <PopoverTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl" title="Диаграмма"><BarChart3 className="h-4 w-4" /></Button></PopoverTrigger>
-                    <PopoverContent align="start" className={cn('w-48 p-3 space-y-2', dark ? 'bg-neutral-900 border-white/10' : '')}>
-                      <div className={cn('text-xs font-semibold', dark ? 'text-white/60' : 'text-gray-500')}>Тип диаграммы</div>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn('h-8 w-8 rounded-xl flex items-center justify-center transition-all', dark ? 'hover:bg-white/8 text-white/60' : 'hover:bg-gray-100 text-gray-500')}
+                      >
+                        <BarChart3 className="h-4 w-4" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" sideOffset={8} className={cn('w-44 p-3 space-y-1 z-[200]', dark ? 'bg-neutral-900 border-white/10' : '')}>
+                      <div className={cn('text-xs font-semibold mb-2', dark ? 'text-white/60' : 'text-gray-500')}>Тип диаграммы</div>
                       {(['bar', 'pie', 'line', 'donut'] as const).map(t => (
-                        <button key={t} onPointerDown={(e) => { e.preventDefault(); setDiagramType(t); addCanvasObject('diagram', { w: 250, h: 200, view: t }) }}
+                        <button key={t} onPointerDown={e => { e.preventDefault(); setTool('select'); setDiagramType(t); addCanvasObject('diagram', { w: 250, h: 200, view: t }) }}
                           className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors', dark ? 'text-white/70 hover:bg-white/5' : 'text-gray-700 hover:bg-gray-50')}
                         >
                           {t === 'bar' && <><BarChart3 className="h-4 w-4" /> Столбчатая</>}
@@ -802,37 +897,127 @@ export default function NotebookPage() {
               </Tip>
             </div>
 
-            {/* Properties Bar (shown when stroke tool active OR objects selected) */}
-            {active.doc.mode === 'canvas' && (tool === 'stroke' || selectedIds.length > 0) && (
-              <div className={cn('flex items-center gap-4 px-4 py-2 border-b shrink-0', dark ? 'border-white/8 bg-white/[0.02]' : 'border-gray-100 bg-gray-50')}>
-                <span className={cn('text-xs font-medium', dark ? 'text-white/50' : 'text-gray-500')}>Цвет:</span>
-                <div className="flex gap-1.5">
-                  {['#86adff','#ff6b6b','#51cf66','#ffd43b','#cc5de8','#ff922b','#20c997','#ffffff','#868e96'].map(c => (
-                    <button key={c} onClick={() => {
+            {/* ═══ Canvas Properties Bar — ALWAYS SHOWN in canvas mode ═══ */}
+            {active.doc.mode === 'canvas' && (
+              <div className={cn('flex items-center gap-3 px-4 py-2 border-b shrink-0 flex-wrap', dark ? 'border-white/8 bg-[#080a14]' : 'border-gray-100 bg-gray-50/80')}>
+                {/* Tool indicator */}
+                <span className={cn('text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md', tool === 'stroke' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-white/40', dark ? '' : 'bg-gray-100 text-gray-500')}>
+                  {tool === 'stroke' ? '🖊 Рисование' : selectedIds.length > 1 ? `${selectedIds.length} выделено` : selectedIds.length === 1 ? 'Выделен объект' : '↖ Выделение'}
+                </span>
+                <div className={cn('w-px h-4 shrink-0', dark ? 'bg-white/10' : 'bg-gray-200')} />
+                {/* Color swatches */}
+                <span className={cn('text-[11px] font-medium shrink-0', dark ? 'text-white/40' : 'text-gray-400')}>Цвет:</span>
+                <div className="flex gap-1 items-center">
+                  {['#86adff','#ff6b6b','#51cf66','#ffd43b','#cc5de8','#ff922b','#20c997','#ff79c6','#ffffff','#94a3b8','#000000'].map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      title={c}
+                      onClick={() => {
+                        setDrawColor(c)
+                        setShapeColor(c)
                         if (selectedIds.length > 0) applyPatchToSelected({ stroke: c })
-                        else { setDrawColor(c); setShapeColor(c); }
-                    }}
-                      className={cn('h-6 w-6 rounded-full border-2 transition-all relative overflow-hidden', (selectedIds.length > 0 ? false : drawColor === c) ? 'scale-125 border-blue-500 shadow-md' : (dark ? 'border-white/20' : 'border-gray-200'))}
+                      }}
+                      className={cn(
+                        'h-5 w-5 rounded-full border-2 transition-all hover:scale-125',
+                        drawColor === c ? 'border-white scale-[1.3] shadow-lg' : (dark ? 'border-white/20' : 'border-gray-300')
+                      )}
                       style={{ backgroundColor: c }}
                     />
                   ))}
+                  {/* Custom color picker */}
+                  <label className={cn('h-5 w-5 rounded-full border-2 cursor-pointer hover:scale-125 transition-all flex items-center justify-center overflow-hidden', dark ? 'border-white/20' : 'border-gray-300')} title="Свой цвет">
+                    <span className="text-[8px]">+</span>
+                    <input type="color" value={drawColor} onChange={e => { setDrawColor(e.target.value); setShapeColor(e.target.value); if (selectedIds.length > 0) applyPatchToSelected({ stroke: e.target.value }) }} className="opacity-0 absolute w-0 h-0" />
+                  </label>
                 </div>
-                <div className={cn('w-px h-5', dark ? 'bg-white/10' : 'bg-gray-200')} />
-                <span className={cn('text-xs font-medium whitespace-nowrap', dark ? 'text-white/50' : 'text-gray-500')}>Размер/Толщина:</span>
-                <input type="range" min="1" max="64" 
-                    value={selectedIds.length === 1 ? (active.doc.objects.find(o => o.id === selectedIds[0])?.strokeWidth || active.doc.objects.find(o => o.id === selectedIds[0])?.fontSize || strokeWidth) : strokeWidth} 
-                    onChange={e => {
-                        const val = Number(e.target.value)
-                        setStrokeWidth(Math.min(val, 20))
+                <div className={cn('w-px h-4 shrink-0', dark ? 'bg-white/10' : 'bg-gray-200')} />
+                {/* Fill color for shapes */}
+                <span className={cn('text-[11px] font-medium shrink-0', dark ? 'text-white/40' : 'text-gray-400')}>Заливка:</span>
+                <div className="flex gap-1 items-center">
+                  {['transparent','#86adff33','#ff6b6b33','#51cf6633','#ffd43b33'].map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => {
+                        setShapeFill(c)
+                        if (selectedIds.length > 0) applyPatchToSelected({ fill: c })
+                      }}
+                      className={cn(
+                        'h-5 w-5 rounded border-2 transition-all hover:scale-125',
+                        shapeFill === c ? 'border-blue-500 scale-[1.2]' : (dark ? 'border-white/20' : 'border-gray-300')
+                      )}
+                      style={{ backgroundColor: c === 'transparent' ? undefined : c }}
+                    >
+                      {c === 'transparent' && <span className="text-[8px] leading-none text-center block">∅</span>}
+                    </button>
+                  ))}
+                </div>
+                <div className={cn('w-px h-4 shrink-0', dark ? 'bg-white/10' : 'bg-gray-200')} />
+                {/* Stroke width */}
+                <span className={cn('text-[11px] font-medium shrink-0', dark ? 'text-white/40' : 'text-gray-400')}>Толщина:</span>
+                <div className="flex items-center gap-1.5">
+                  {[1, 2, 4, 6, 10, 16].map(w => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => {
+                        setStrokeWidth(w)
                         if (selectedIds.length > 0) {
-                            if (selectedIds.length === 1 && active.doc.objects.find(o => o.id === selectedIds[0])?.type === 'text') {
-                                applyPatchToSelected({ fontSize: val })
-                            } else {
-                                applyPatchToSelected({ strokeWidth: Math.min(val, 20) })
-                            }
+                          const sel = active.doc.objects.find(o => o.id === selectedIds[0])
+                          if (sel?.type === 'text') applyPatchToSelected({ fontSize: w * 2 })
+                          else applyPatchToSelected({ strokeWidth: w })
                         }
-                    }} className="w-32" 
-                />
+                      }}
+                      className={cn(
+                        'flex items-center justify-center rounded transition-all',
+                        strokeWidth === w ? 'bg-blue-500/30 scale-110' : (dark ? 'hover:bg-white/5' : 'hover:bg-gray-100')
+                      )}
+                      style={{ width: 20, height: 20 }}
+                    >
+                      <div className="rounded-full bg-current" style={{ width: Math.min(w * 2, 18), height: Math.min(w, 8), backgroundColor: drawColor === '#ffffff' ? '#666' : drawColor }} />
+                    </button>
+                  ))}
+                  <input type="range" min="1" max="30" value={strokeWidth}
+                    onChange={e => {
+                      const val = Number(e.target.value)
+                      setStrokeWidth(val)
+                      if (selectedIds.length > 0) {
+                        const sel = active.doc.objects.find(o => o.id === selectedIds[0])
+                        if (sel?.type === 'text') applyPatchToSelected({ fontSize: val })
+                        else applyPatchToSelected({ strokeWidth: val })
+                      }
+                    }}
+                    className="w-24"
+                  />
+                  <span className={cn('text-[10px] w-4 tabular-nums', dark ? 'text-white/30' : 'text-gray-400')}>{strokeWidth}</span>
+                </div>
+                {/* Font family — shown when text object selected */}
+                {selectedIds.length > 0 && active.doc.objects.find(o => o.id === selectedIds[0])?.type === 'text' && (
+                  <>
+                    <div className={cn('w-px h-4 shrink-0', dark ? 'bg-white/10' : 'bg-gray-200')} />
+                    <span className={cn('text-[11px] font-medium shrink-0', dark ? 'text-white/40' : 'text-gray-400')}>Шрифт:</span>
+                    <select
+                      value={fontFamily}
+                      onChange={e => {
+                        setFontFamily(e.target.value)
+                        applyPatchToSelected({ fontFamily: e.target.value })
+                      }}
+                      className={cn('text-[11px] rounded px-2 py-0.5 border', dark ? 'bg-neutral-800 border-white/10 text-white' : 'bg-white border-gray-200 text-gray-700')}
+                    >
+                      {['Сан-Сериф (Inter)|Inter, sans-serif', 'Сериф (Georgia)|Georgia, serif', 'Моно (Mono)|monospace', 'Текст Serif|Times New Roman, serif'].map(f => {
+                        const [label, val] = f.split('|')
+                        return <option key={val} value={val}>{label}</option>
+                      })}
+                    </select>
+                    <span className={cn('text-[11px] font-medium shrink-0', dark ? 'text-white/40' : 'text-gray-400')}>Размер:</span>
+                    <input type="number" min={8} max={120}
+                      value={active.doc.objects.find(o => o.id === selectedIds[0])?.fontSize || 16}
+                      onChange={e => applyPatchToSelected({ fontSize: Number(e.target.value) })}
+                      className={cn('w-14 text-[11px] rounded px-2 py-0.5 border', dark ? 'bg-neutral-800 border-white/10 text-white' : 'bg-white border-gray-200')}
+                    />
+                  </>
+                )}
               </div>
             )}
 
@@ -920,12 +1105,18 @@ export default function NotebookPage() {
                         onGroupMove={onGroupMove}
                       >
                         {object.type === 'text' && (
-                          <div className="absolute inset-0 pointer-events-auto">
+                          <div className="absolute inset-0 pointer-events-auto flex items-start justify-start p-2">
                             <textarea
-                              value={object.text}
+                              value={object.text || ''}
+                              placeholder="Начните писать..."
                               onChange={e => patchObject(object.id, () => ({ text: e.target.value }))}
-                              className="w-full h-full bg-transparent border-none outline-none resize-none p-2 leading-relaxed"
-                              style={{ fontSize: object.fontSize || 16, color: object.stroke || (dark ? '#f4f7ff' : '#182235') }}
+                              onPointerDown={e => e.stopPropagation()}
+                              className={cn('w-full h-full bg-transparent border-none outline-none resize-none leading-relaxed placeholder:opacity-30')}
+                              style={{
+                                fontSize: object.fontSize || 16,
+                                color: object.stroke || (dark ? '#f4f7ff' : '#182235'),
+                                fontFamily: object.fontFamily || 'Inter, sans-serif',
+                              }}
                             />
                           </div>
                         )}
@@ -985,6 +1176,62 @@ export default function NotebookPage() {
         ) : null}
 
         {/* ════════════ DIALOGS ════════════ */}
+        {/* Table Data Entry Modal */}
+        <Dialog open={tableModalOpen} onOpenChange={setTableModalOpen}>
+          <DialogContent className={cn('max-w-3xl', dark ? 'bg-neutral-900 border-white/10' : '')}>
+            <DialogHeader>
+              <DialogTitle>Создание таблицы</DialogTitle>
+              <DialogDescription>Введите данные, затем нажмите «Создать»</DialogDescription>
+            </DialogHeader>
+            <div className="flex items-center gap-4 mb-3">
+              <label className="text-sm">Строки:
+                <input type="number" min={1} max={20} value={tableDraftRows}
+                  onChange={e => {
+                    const r = Math.max(1, +e.target.value)
+                    setTableDraftRows(r)
+                    setTableDraftData(prev => Array.from({ length: r }, (_, ri) => Array.from({ length: tableDraftCols }, (_, ci) => prev[ri]?.[ci] ?? (ri === 0 ? `Кол. ${ci + 1}` : ''))))
+                  }}
+                  className={cn('ml-2 w-16 rounded border px-2 py-1 text-sm', dark ? 'bg-neutral-800 border-white/10 text-white' : 'border-gray-200')}
+                />
+              </label>
+              <label className="text-sm">Колонки:
+                <input type="number" min={1} max={10} value={tableDraftCols}
+                  onChange={e => {
+                    const c = Math.max(1, +e.target.value)
+                    setTableDraftCols(c)
+                    setTableDraftData(prev => prev.map((row, ri) => Array.from({ length: c }, (_, ci) => row[ci] ?? (ri === 0 ? `Кол. ${ci + 1}` : ''))))
+                  }}
+                  className={cn('ml-2 w-16 rounded border px-2 py-1 text-sm', dark ? 'bg-neutral-800 border-white/10 text-white' : 'border-gray-200')}
+                />
+              </label>
+            </div>
+            <div className="overflow-auto max-h-72 border rounded-lg" style={{ borderColor: dark ? 'rgba(255,255,255,0.1)' : '#e5e7eb' }}>
+              <table className="w-full">
+                <tbody>
+                  {tableDraftData.map((row, rIdx) => (
+                    <tr key={rIdx} className={rIdx === 0 ? (dark ? 'bg-white/5 font-semibold' : 'bg-gray-50 font-semibold') : ''}>
+                      {row.map((cell, cIdx) => (
+                        <td key={cIdx} className="border-r border-b p-0" style={{ borderColor: dark ? 'rgba(255,255,255,0.08)' : '#e5e7eb' }}>
+                          <input
+                            value={cell}
+                            onChange={e => setTableDraftData(prev => prev.map((r, ri) => ri === rIdx ? r.map((c, ci) => ci === cIdx ? e.target.value : c) : r))}
+                            className={cn('w-full px-2 py-1.5 text-sm bg-transparent outline-none', rIdx === 0 ? 'font-semibold' : '')}
+                            style={{ minWidth: 80 }}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTableModalOpen(false)}>Отмена</Button>
+              <Button onClick={confirmCreateTable}>Создать таблицу</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
           <DialogContent className={dark ? 'bg-neutral-900 border-white/10' : ''}>
             <DialogHeader>

@@ -20,6 +20,7 @@ type HybridObjectWrapperProps = {
   onGroupMoveStart?: () => void
   onGroupMove?: (dx: number, dy: number) => void
   children?: ReactNode
+  interactive?: boolean
 }
 
 export function getLassoBox(lasso: LassoSelection) {
@@ -85,6 +86,7 @@ export function HybridObjectWrapper({
   onGroupMoveStart,
   onGroupMove,
   children,
+  interactive = true,
 }: HybridObjectWrapperProps) {
   const outline = selected ? accent : (multiSelected ? `${accent}80` : 'transparent')
   const isImage = object.type === 'image'
@@ -108,39 +110,43 @@ export function HybridObjectWrapper({
       
       let patch: Partial<HybridObject> = {}
 
-      if (pivot === 'se') {
-        const newW = Math.max(20, startW + dx)
-        const newH = Math.max(20, startH + dy)
-        patch = { w: newW, h: newH }
-        if (isText) {
-          // Font scaling logic: scale relative to width change
-          const ratio = newW / startW
-          patch.fontSize = Math.max(8, startFontSize * ratio)
+      if (['nw', 'ne', 'sw', 'se'].includes(pivot)) {
+        let dot = 0
+        if (pivot === 'se') dot = dx * startW + dy * startH
+        else if (pivot === 'nw') dot = -dx * startW - dy * startH
+        else if (pivot === 'ne') dot = dx * startW - dy * startH
+        else if (pivot === 'sw') dot = -dx * startW + dy * startH
+        
+        const diagSq = startW * startW + startH * startH
+        const ratio = Math.max(20 / startW, 20 / startH, 1 + dot / diagSq)
+        const newW = startW * ratio
+        const newH = startH * ratio
+        
+        if (pivot === 'se') {
+          patch = { w: newW, h: newH }
+        } else if (pivot === 'nw') {
+          patch = { x: startXPos + (startW - newW), y: startYPos + (startH - newH), w: newW, h: newH }
+        } else if (pivot === 'ne') {
+          patch = { y: startYPos + (startH - newH), w: newW, h: newH }
+        } else if (pivot === 'sw') {
+          patch = { x: startXPos + (startW - newW), w: newW, h: newH }
         }
-      } else if (pivot === 'nw') {
-        const newW = Math.max(20, startW - dx)
-        const newH = Math.max(20, startH - dy)
-        patch = { 
-          x: startXPos + (startW - newW), 
-          y: startYPos + (startH - newH), 
-          w: newW, 
-          h: newH 
-        }
-      } else if (pivot === 'ne') {
-        const newW = Math.max(20, startW + dx)
+        if (isText) patch.fontSize = Math.max(8, startFontSize * ratio)
+      } else if (pivot === 'n') {
         const newH = Math.max(20, startH - dy)
         patch = {
           y: startYPos + (startH - newH),
-          w: newW,
           h: newH
         }
-      } else if (pivot === 'sw') {
+      } else if (pivot === 's') {
+        patch = { h: Math.max(20, startH + dy) }
+      } else if (pivot === 'e') {
+        patch = { w: Math.max(20, startW + dx) }
+      } else if (pivot === 'w') {
         const newW = Math.max(20, startW - dx)
-        const newH = Math.max(20, startH + dy)
         patch = {
           x: startXPos + (startW - newW),
-          w: newW,
-          h: newH
+          w: newW
         }
       }
 
@@ -179,8 +185,9 @@ export function HybridObjectWrapper({
       
       <button
         type="button"
-        className="absolute inset-0 cursor-move border-none bg-transparent"
+        className={cn("absolute inset-0 border-none bg-transparent", interactive ? 'cursor-move' : 'pointer-events-none')}
         onPointerDown={(event) => {
+          if (!interactive) return
           if (event.button !== 0) return
           if (!multiSelected) onSelect(object.id, event.shiftKey)
           const startX = event.clientX
@@ -212,7 +219,7 @@ export function HybridObjectWrapper({
       />
 
       <div className="pointer-events-none h-full w-full overflow-visible">
-        {object.type === 'cad' ? <svg viewBox="0 0 100 100" className="h-full w-full pointer-events-none"><defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.15" /></filter></defs>{renderCadShape(object)}</svg> : null}
+        {object.type === 'cad' ? <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full pointer-events-none"><defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.15" /></filter></defs>{renderCadShape(object)}</svg> : null}
 
         {object.type === 'stroke' && object.points?.length ? (
           <svg viewBox={`0 0 ${object.w} ${object.h}`} className="h-full w-full pointer-events-none">
@@ -234,7 +241,7 @@ export function HybridObjectWrapper({
         {children}
       </div>
 
-      {selected && !object.locked && (
+      {interactive && selected && !object.locked && (
         <>
           {/* Resize handles - Corners */}
           {['nw', 'ne', 'sw', 'se'].map((pivot) => (
@@ -250,7 +257,20 @@ export function HybridObjectWrapper({
               onPointerDown={(e) => handlePointerDown(e, pivot)}
             />
           ))}
-          
+          {/* Resize handles - Edges */}
+          {['n', 's', 'e', 'w'].map((pivot) => (
+            <div
+              key={pivot}
+              className={cn(
+                "absolute rounded-full border-2 border-blue-500 bg-white shadow-md z-[60] transition-transform hover:scale-125",
+                pivot === 'n' && "h-2.5 w-6 -top-[5px] left-1/2 -translate-x-1/2 cursor-ns-resize",
+                pivot === 's' && "h-2.5 w-6 -bottom-[5px] left-1/2 -translate-x-1/2 cursor-ns-resize",
+                pivot === 'e' && "w-2.5 h-6 -right-[5px] top-1/2 -translate-y-1/2 cursor-ew-resize",
+                pivot === 'w' && "w-2.5 h-6 -left-[5px] top-1/2 -translate-y-1/2 cursor-ew-resize"
+              )}
+              onPointerDown={(e) => handlePointerDown(e, pivot)}
+            />
+          ))}
           {/* Rotation handle */}
           <button 
             type="button" 
@@ -266,7 +286,7 @@ export function HybridObjectWrapper({
         </>
       )}
 
-      {selected && !object.locked && object.type === 'cad' && showDimensions ? (
+      {interactive && selected && !object.locked && object.type === 'cad' && showDimensions ? (
         <div className="absolute -bottom-8 left-0 right-0 flex justify-center">
             <div className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-white">
                 {Math.round(object.w)} x {Math.round(object.h)}

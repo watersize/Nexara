@@ -21,6 +21,7 @@ export type HybridObject = {
   text?: string
   variant?: 'title' | 'body' | 'callout'
   fontSize?: number
+  fontFamily?: string
   src?: string
   caption?: string
   traceable?: boolean

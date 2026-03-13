@@ -295,6 +295,7 @@ export default function PlannerPage() {
   const appState = useAppState()
   const user = appState?.authSession ? { displayName: appState.authSession.display_name, email: appState.authSession.email } : undefined
   const [tasks, setTasks] = useState<TaskItem[]>([])
+  const [isNewTaskTriggered, setIsNewTaskTriggered] = useState(false)
   
   const Tip = ({ children, label, side = 'bottom' }: { children: React.ReactNode, label: string, side?: 'top' | 'bottom' | 'left' | 'right' }) => (
     <Tooltip>
@@ -317,6 +318,33 @@ export default function PlannerPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [subGraphs, setSubGraphs] = useState<Record<string, any[]>>({})
 
+  // Graph Pan & Zoom state
+  const [scale, setScale] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault()
+    if (e.deltaY < 0) setScale(s => Math.min(s * 1.1, 4))
+    else setScale(s => Math.max(s * 0.9, 0.25))
+  }
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 1 || e.button === 0) {
+      if (e.button === 1) e.preventDefault()
+      setIsDragging(true)
+      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
+    }
+  }
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return
+    setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y })
+  }
+
+  const handleMouseUp = () => setIsDragging(false)
+
   const loadTasks = async () => {
     setLoading(true)
     try {
@@ -333,6 +361,17 @@ export default function PlannerPage() {
   useEffect(() => {
     void loadTasks()
   }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('new') === '1' && !isNewTaskTriggered) {
+      setIsNewTaskTriggered(true)
+      setDraft(createEmptyDraft())
+      setComposerOpen(true)
+      // Cleanup the URL to prevent subsequent re-triggers
+      window.history.replaceState({}, '', '/planner')
+    }
+  }, [isNewTaskTriggered])
 
   useEffect(() => {
     async function loadGraph() {
@@ -546,7 +585,7 @@ export default function PlannerPage() {
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
-      <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-1 flex-col px-5 py-8 sm:px-8">
+      <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-1 flex-col overflow-x-hidden px-5 py-8 sm:px-8">
         <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <div className="rounded-[30px] border border-white/8 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_34%),linear-gradient(180deg,_rgba(11,13,23,0.98),_rgba(6,8,18,1))] p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -633,26 +672,24 @@ export default function PlannerPage() {
             <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Неделя</div>
             <div className="text-sm font-medium text-white/60">{format(new Date(), "LLLL yyyy", { locale: ru })}</div>
           </div>
-          <div className="grid grid-cols-7 gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
             {(() => {
               const today = new Date()
-              const dayOfWeek = today.getDay() || 7 // 1=Mon ... 7=Sun
-              return Array.from({ length: 7 }, (_, i) => {
+              return Array.from({ length: 14 }, (_, i) => {
                 const date = new Date(today)
-                date.setDate(today.getDate() - dayOfWeek + 1 + i)
+                date.setDate(today.getDate() - 3 + i) // Show 3 days before and 10 days after
                 const dateStr = format(date, 'yyyy-MM-dd')
                 const isToday = dateStr === format(today, 'yyyy-MM-dd')
                 const dayTasks = tasks.filter(t => t.dueDate === dateStr)
                 const doneTasks = dayTasks.filter(t => t.done).length
                 const totalTasks = dayTasks.length
-                const density = totalTasks === 0 ? 0 : totalTasks <= 2 ? 1 : totalTasks <= 4 ? 2 : 3
 
                 return (
                   <div
                     key={i}
                     onClick={() => setSelectedDate(prev => prev === dateStr ? null : dateStr)}
                     className={cn(
-                      'flex flex-col items-center gap-1 py-3 px-2 rounded-2xl transition-all cursor-pointer group',
+                      'flex flex-col items-center gap-1 py-3 px-4 rounded-2xl transition-all cursor-pointer group shrink-0 min-w-[70px]',
                       selectedDate === dateStr ? 'bg-blue-500/20 border border-blue-500/40 shadow-lg shadow-blue-500/10' : isToday ? 'bg-blue-500/8 border border-blue-500/20' : 'border border-transparent hover:bg-white/[0.04] hover:border-white/8'
                     )}
                   >
@@ -665,7 +702,6 @@ export default function PlannerPage() {
                     )}>
                       {format(date, 'd')}
                     </span>
-                    {/* Density dots */}
                     <div className="flex items-center gap-0.5 mt-0.5">
                       {totalTasks > 0 ? (
                         Array.from({ length: Math.min(totalTasks, 4) }, (_, j) => (
@@ -681,14 +717,6 @@ export default function PlannerPage() {
                         <div className="h-1.5 w-1.5 rounded-full bg-white/10" />
                       )}
                     </div>
-                    {totalTasks > 0 && (
-                      <span className={cn(
-                        'text-[10px] font-medium mt-0.5',
-                        doneTasks === totalTasks ? 'text-emerald-400' : 'text-white/40'
-                      )}>
-                        {doneTasks}/{totalTasks}
-                      </span>
-                    )}
                   </div>
                 )
               })
@@ -958,13 +986,35 @@ export default function PlannerPage() {
               </div>
               
               {/* Right Side: Graph */}
-              <div className="flex-1 p-6 relative">
+              <div className="flex-1 p-6 relative flex flex-col">
                   <div className="absolute top-6 left-6 z-10">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">knowledge graph</div>
                     <div className="mt-2 text-2xl font-semibold text-white">{graph?.node?.title || 'Граф связей'}</div>
                   </div>
-                  <div className="rounded-[26px] border border-white/8 bg-black/15 p-4 mt-16 h-[400px]">
-                      <svg viewBox="0 0 720 420" className="h-full w-full">
+                  
+                  {/* Graph Toolbar */}
+                  <div className="absolute top-6 right-6 z-10 flex items-center gap-1 bg-black/40 backdrop-blur rounded-xl border border-white/10 p-1">
+                    <Tip label="Приблизить">
+                       <button onClick={() => setScale(s => Math.min(s * 1.2, 4))} className="p-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-lg"><Plus className="w-4 h-4"/></button>
+                    </Tip>
+                    <Tip label="Отдалить">
+                       <button onClick={() => setScale(s => Math.max(s * 0.8, 0.25))} className="p-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-lg"><div className="w-4 h-[2px] bg-current rounded-full m-auto mt-[7px] mb-[7px]"></div></button>
+                    </Tip>
+                    <Tip label="Сбросить вид">
+                       <button onClick={() => { setScale(1); setPan({x: 0, y: 0}) }} className="p-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-lg"><div className="w-4 h-4 border-2 border-current rounded-full relative"><div className="w-1 h-1 bg-current rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div></div></button>
+                    </Tip>
+                  </div>
+
+                  <div 
+                    className="rounded-[26px] border border-white/8 bg-black/15 p-0 mt-16 h-[400px] flex-1 overflow-hidden relative cursor-grab active:cursor-grabbing"
+                    onWheel={handleWheel}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                  >
+                      <svg viewBox="0 0 720 420" className="h-full w-full pointer-events-none">
+                        <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`} style={{ transformOrigin: '360px 210px' }} className="pointer-events-auto">
                         {graph?.neighbors?.map((neighbor: any, index: number) => {
                           const angle = (Math.PI * 2 * index) / Math.max(graph.neighbors.length, 1) - Math.PI / 2
                           const x = 360 + Math.cos(angle) * 150
@@ -1028,6 +1078,7 @@ export default function PlannerPage() {
                             <text x="360" y="260" textAnchor="middle" fill="rgba(255,255,255,0.82)" fontSize="16" fontWeight="bold">
                               {graph?.node?.title || ''}
                             </text>
+                        </g>
                         </g>
                       </svg>
                   </div>

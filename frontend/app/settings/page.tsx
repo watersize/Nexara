@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -75,6 +75,12 @@ export default function SettingsPage() {
   const [nickname, setNickname] = useState('')
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [isSavingSettings, setIsSavingSettings] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    try { const saved = localStorage.getItem('veyo:avatar'); if (saved) setAvatarUrl(saved) } catch {}
+  }, [])
 
   useEffect(() => {
     if (!appState) return
@@ -89,8 +95,22 @@ export default function SettingsPage() {
     }
   }, [appState, setTheme])
 
-  const version = useMemo(() => 'veyo.ai v1.4.1', [])
-  const dark = resolvedTheme !== 'light'
+  const version = useMemo(() => 'veyo.ai v1.5.0', [])
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const dark = mounted ? resolvedTheme !== 'light' : true
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const url = reader.result as string
+      setAvatarUrl(url)
+      try { localStorage.setItem('veyo:avatar', url) } catch {}
+    }
+    reader.readAsDataURL(file)
+  }
 
   const saveSettings = async (themeOverride?: 'light' | 'dark') => {
     setIsSavingSettings(true)
@@ -144,9 +164,21 @@ export default function SettingsPage() {
           <section className={cn('rounded-[26px] border p-5', dark ? 'border-white/7 bg-white/[0.03]' : 'border-gray-200 bg-white')}>
             <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-2xl font-semibold text-white">
-                  {(nickname || user?.displayName || user?.email || 'П').slice(0, 1).toUpperCase()}
+                <div
+                  role="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="relative flex h-16 w-16 cursor-pointer items-center justify-center rounded-full bg-primary text-2xl font-semibold text-white overflow-hidden hover:ring-4 ring-primary/30 transition-all"
+                  title="Нажмите чтобы сменить аватарку"
+                >
+                  {avatarUrl
+                    ? <img src={avatarUrl} alt="avatar" className="h-full w-full object-cover" />
+                    : (nickname || user?.displayName || user?.email || 'П').slice(0, 1).toUpperCase()
+                  }
+                  <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Pencil className="h-5 w-5 text-white" />
+                  </div>
                 </div>
+                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                 <div>
                   <div className={cn('text-2xl font-semibold', dark ? 'text-white' : 'text-gray-900')}>{nickname || user?.displayName || 'Пользователь'}</div>
                   <div className={cn('mt-1 text-sm', dark ? 'text-white/50' : 'text-gray-500')}>{user?.email || 'Профиль не заполнен'}</div>

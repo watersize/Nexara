@@ -33,7 +33,9 @@ export default function TextbooksPage() {
   const appState = useAppState()
   const user = appState?.authSession ? { displayName: appState.authSession.display_name, email: appState.authSession.email } : undefined
   const { resolvedTheme } = useTheme()
-  const dark = resolvedTheme !== 'light'
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const dark = mounted ? resolvedTheme !== 'light' : true
 
   const [items, setItems] = useState<MaterialRecord[]>([])
   const [themes, setThemes] = useState<ThemeFolder[]>([])
@@ -113,34 +115,83 @@ export default function TextbooksPage() {
   }, [groupedThemes.ungrouped, searchQuery])
 
   // Book card component
-  const BookCard = ({ book, themeId }: { book: MaterialRecord; themeId?: string }) => (
-    <article className={cn(
-      'rounded-2xl border p-5 transition-all group hover:shadow-lg',
-      dark ? 'border-white/8 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/12' : 'border-gray-200 bg-white hover:shadow-md'
-    )}>
-      <div className="flex items-start justify-between gap-3">
-        <div className={cn('flex h-12 w-12 items-center justify-center rounded-2xl', dark ? 'bg-blue-500/12 text-blue-400' : 'bg-blue-50 text-blue-500')}>
-          <FileText className="h-5 w-5" />
+  const BookCard = ({ book, themeId }: { book: MaterialRecord; themeId?: string }) => {
+    const [folderOpen, setFolderOpen] = useState(false)
+    const assigned = themes.find(t => t.id === themeId)
+
+    return (
+      <article className={cn(
+        'rounded-2xl border p-5 transition-all group hover:shadow-lg relative',
+        dark ? 'border-white/8 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/12' : 'border-gray-200 bg-white hover:shadow-md'
+      )}>
+        <div className="flex items-start justify-between gap-3">
+          <div className={cn('flex h-12 w-12 items-center justify-center rounded-2xl', dark ? 'bg-blue-500/12 text-blue-400' : 'bg-blue-50 text-blue-500')}>
+            <FileText className="h-5 w-5" />
+          </div>
+          <button type="button" onClick={async () => { await tauriInvoke('delete_textbook', { payload: { hash: book.hash } }); await loadItems() }}
+            className={cn('opacity-0 group-hover:opacity-100 transition-opacity', dark ? 'text-white/40 hover:text-red-400' : 'text-gray-400 hover:text-red-500')}
+          ><Trash2 className="h-4 w-4" /></button>
         </div>
-        <button type="button" onClick={async () => { await tauriInvoke('delete_textbook', { payload: { hash: book.hash } }); await loadItems() }}
-          className={cn('opacity-0 group-hover:opacity-100 transition-opacity', dark ? 'text-white/40 hover:text-red-400' : 'text-gray-400 hover:text-red-500')}
-        ><Trash2 className="h-4 w-4" /></button>
-      </div>
-      <div className={cn('mt-4 text-base font-semibold truncate', dark ? 'text-white' : 'text-gray-900')}>{book.file_name}</div>
-      <div className={cn('mt-1.5 text-xs', dark ? 'text-white/40' : 'text-gray-400')}>
-        {format(new Date(book.created_at), 'd MMM yyyy, HH:mm', { locale: ru })}
-      </div>
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <button type="button" onClick={() => void openPreview(book.hash)} className="text-sm font-medium text-blue-500 hover:text-blue-400 transition-colors">Посмотреть</button>
-        <select value={themeId || ''} onChange={(event) => event.target.value && assignBook(book.hash, event.target.value)}
-          className={cn('rounded-xl border px-3 py-1.5 text-xs', dark ? 'border-white/10 bg-black/20 text-white' : 'border-gray-200 bg-gray-50 text-gray-700')}
-        >
-          {!themeId && <option value="" disabled>В тему</option>}
-          {themes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-      </div>
-    </article>
-  )
+        <div className={cn('mt-4 text-base font-semibold truncate', dark ? 'text-white' : 'text-gray-900')}>{book.file_name}</div>
+        <div className={cn('mt-1.5 text-xs', dark ? 'text-white/40' : 'text-gray-400')}>
+          {format(new Date(book.created_at), 'd MMM yyyy, HH:mm', { locale: ru })}
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button type="button" onClick={() => void openPreview(book.hash)} className="text-sm font-medium text-blue-500 hover:text-blue-400 transition-colors">Посмотреть</button>
+
+          {/* Styled folder selector */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setFolderOpen(v => !v)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
+                dark
+                  ? 'border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/8'
+                  : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'
+              )}
+            >
+              {assigned ? (
+                <><span className="h-2 w-2 rounded-full bg-primary inline-block" />{assigned.name}</>
+              ) : (
+                <><span className="opacity-40">В тему</span></>
+              )}
+              <ChevronDown className={cn('h-3 w-3 transition-transform', folderOpen && 'rotate-180')} />
+            </button>
+
+            {folderOpen && (
+              <div
+                className={cn(
+                  'absolute right-0 bottom-full mb-1 z-50 min-w-[140px] rounded-2xl border shadow-xl overflow-hidden',
+                  dark ? 'bg-neutral-900 border-white/10' : 'bg-white border-gray-200'
+                )}
+              >
+                {themes.length === 0 && (
+                  <div className={cn('px-4 py-3 text-xs', dark ? 'text-white/40' : 'text-gray-400')}>Нет папок</div>
+                )}
+                {themes.map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => { assignBook(book.hash, t.id); setFolderOpen(false) }}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-4 py-2.5 text-sm text-left transition-colors',
+                      t.id === themeId
+                        ? 'bg-primary/15 text-primary font-semibold'
+                        : dark ? 'text-white/80 hover:bg-white/5' : 'text-gray-700 hover:bg-gray-50'
+                    )}
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full bg-primary/70 shrink-0" />
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </article>
+    )
+  }
 
   return (
     <AppShell displayName={user?.displayName} email={user?.email}>
